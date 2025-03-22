@@ -38,7 +38,6 @@ def grab_strand(pdb_id: str, labels: Labels) -> Strand:
         }
     )
 
-
 # ============= Strand to PDB =============
 def strand_to_pdb(strand: Strand) -> str:
     pdb = ""
@@ -52,8 +51,8 @@ def save_pdb(pdb: str, filename: str):
     with open(filename, "w") as f:
         f.write(pdb)
 
-# ============= Test =============
-def default_test():
+# ============= Main/Test=============
+if __name__ == "__main__":
     labels = Labels(df=pd.read_csv("data/train_labels.csv"))
     # labels = Labels()
     # strand = Strand()
@@ -62,8 +61,5 @@ def default_test():
     print(strand)
     pdb = strand_to_pdb(strand)
     print(pdb)
-    save_pdb(pdb, "data/pdbs/test.pdb")
+    save_pdb(pdb, "data/pdbs/tools_test_2LKR_A.pdb")
     print("saved")
-# ============= Main =============
-if __name__ == "__main__":
-    default_test()
