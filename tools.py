@@ -3,6 +3,20 @@ import pandas as pd
 from pydantic import BaseModel, ConfigDict
 import random
 import time
+from typing import Literal
+
+# ============= Coordinate Class =============
+class Coordinate(BaseModel):
+    x: float
+    y: float
+    z: float
+
+
+# ============= Nucleotide Class =============
+class Nucleotide(BaseModel):
+    index: int
+    type: Literal["A", "C", "G", "U"]
+    coordinate: Coordinate = Coordinate(x=0, y=0, z=0)
 
 
 # ============= Labels Class =============
