@@ -4,6 +4,7 @@ from tools import *
 from typing import Literal, Tuple
 from pydantic import BaseModel
 import random
+import numpy as np
 
 
 
@@ -14,6 +15,7 @@ class Coordinate(BaseModel):
 
 
 class Nucleotide(BaseModel):
+    index: int
     type: Literal["A", "C", "G", "U"]
     coordinate: Coordinate = Coordinate(x=0, y=0, z=0)
 
@@ -39,6 +41,24 @@ def generate_line(sequence: Sequence, id="generate_strand") -> Tuple[Strand, lis
         z_1=[nt.coordinate.z for nt in nucleotides],
     )
     return strand, nucleotides
+
+# Lets Take 5 nearest Nucleotides then apply displacement to single nucleotide
+# 1. Calculate Distance Matrix
+def calculate_distance_matrix(nucleotides):
+    matrix = []
+    for nt in nucleotides:
+        distances = []
+        for nt2 in nucleotides:
+            distance = ((nt.coordinate.x - nt2.coordinate.x) ** 2 + (nt.coordinate.y - nt2.coordinate.y) ** 2 + (nt.coordinate.z - nt2.coordinate.z) ** 2) ** 0.5
+            distances.append(distance)
+        matrix.append(distances)
+    return np.array(matrix)
+# 2. Displace Nucleotide with some formula
+def displace_nucleotide(nucleotide:Nucleotide, neighbors:list[Nucleotide], k=1):
+    # Get 5 nearest nucleotides
+    # Calculate the average distance
+    # Displace the nucleotide by the average distance
+    pass
 
 if __name__ == "__main__":
     print("Generating Strand")

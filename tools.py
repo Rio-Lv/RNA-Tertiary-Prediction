@@ -1,3 +1,4 @@
+import os
 import pandas as pd
 from pydantic import BaseModel, ConfigDict
 
@@ -77,6 +78,11 @@ def strand_to_pdb(strand: Strand) -> str:
 def save_pdb(pdb: str, filename: str):
     with open(filename, "w") as f:
         f.write(pdb)
+        
+# ============= Compute Similarity =============
+def compute_similarity(path_1: str, path_2: str):
+    # use USalign to compute similarity
+    os.system(f"USalign/USalign {path_1} {path_2}")
 
 # ============= Main/Test=============
 if __name__ == "__main__":
@@ -95,3 +101,7 @@ if __name__ == "__main__":
     print(pdb)
     save_pdb(pdb, f"data/pdbs/tools_test_{pdb_id}.pdb")
     print("saved")
+    
+    path_1 = f"data/pdbs/tools_test_{pdb_id}.pdb"
+    path_2 = f"data/pdbs/reference_108d.pdb"
+    compute_similarity(path_1, path_2)
