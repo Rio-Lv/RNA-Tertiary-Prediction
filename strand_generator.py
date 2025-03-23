@@ -5,7 +5,7 @@ from typing import Literal, Tuple
 from pydantic import BaseModel
 import random
 import numpy as np
-
+from numpy import ndarray
 
 
 class Coordinate(BaseModel):
@@ -27,9 +27,11 @@ def generate_rand_coord(range=100) -> Coordinate:
     return Coordinate(x=x, y=y, z=z)
 
 
-def generate_line(sequence: Sequence, id="generate_strand") -> Tuple[Strand, list[Nucleotide]]:
+def generate_line(
+    sequence: Sequence, id="generate_strand"
+) -> Tuple[Strand, list[Nucleotide]]:
     nucleotides: list[Nucleotide] = [
-        Nucleotide(type=nt, coordinate=Coordinate(x=0, y=0, z=i * 6.5))
+        Nucleotide(index=i, type=nt, coordinate=Coordinate(x=0, y=0, z=i * 6.5))
         for i, nt in enumerate(sequence.sequence)
     ]
     strand = Strand(
@@ -42,6 +44,7 @@ def generate_line(sequence: Sequence, id="generate_strand") -> Tuple[Strand, lis
     )
     return strand, nucleotides
 
+# Crude Method 
 # Lets Take 5 nearest Nucleotides then apply displacement to single nucleotide
 # 1. Calculate Distance Matrix
 def calculate_distance_matrix(nucleotides):
@@ -49,17 +52,77 @@ def calculate_distance_matrix(nucleotides):
     for nt in nucleotides:
         distances = []
         for nt2 in nucleotides:
-            distance = ((nt.coordinate.x - nt2.coordinate.x) ** 2 + (nt.coordinate.y - nt2.coordinate.y) ** 2 + (nt.coordinate.z - nt2.coordinate.z) ** 2) ** 0.5
+            distance = (
+                (nt.coordinate.x - nt2.coordinate.x) ** 2
+                + (nt.coordinate.y - nt2.coordinate.y) ** 2
+                + (nt.coordinate.z - nt2.coordinate.z) ** 2
+            ) ** 0.5
             distances.append(distance)
         matrix.append(distances)
     return np.array(matrix)
-# 2. Displace Nucleotide with some formula
-def displace_nucleotide(nucleotide:Nucleotide, neighbors:list[Nucleotide], k=1):
-    # Get 5 nearest nucleotides
-    # Calculate the average distance
-    # Displace the nucleotide by the average distance
-    pass
 
+
+# 2. Get 5 nearest Nucleotides
+def get_5_nearest_nucleotides(
+    nucleotide: Nucleotide, nucleotides: list[Nucleotide], distance_matrix
+) -> list[Nucleotide]:
+    distances = distance_matrix[nucleotide.index]
+    nearest = np.argsort(distances)
+    return [nucleotides[i] for i in nearest[:5]]
+
+
+# 3. Displace Nucleotide with some formula
+class OrbitalRadii(BaseModel):
+    radii:dict[str, float] = {
+        "AU": 3.8,
+        "UA": 3.8,
+        "CG": 3.1,
+        "GC": 3.1,
+    }
+def orbital_pull(nucleotide_1:Nucleotide,nucleotide_2:Nucleotide, distance_matrix:ndarray,k=1):
+    # for equilibrium only attract nucleotide 1
+    type_1 = nucleotide_1.type
+    type_2 = nucleotide_2.type
+    orbital_type = str(type_1+type_2)
+    radii_dict = OrbitalRadii().radii
+    radii = radii_dict.get(orbital_type, None)
+    if radii is None:
+        return
+    distance = distance_matrix[nucleotide_1.index][nucleotide_2.index]
+    if distance > radii:
+        k = -k
+    force = k * (distance - radii)
+    ux = (nucleotide_2.coordinate.x - nucleotide_1.coordinate.x) / distance
+    uy = (nucleotide_2.coordinate.y - nucleotide_1.coordinate.y) / distance
+    uz = (nucleotide_2.coordinate.z - nucleotide_1.coordinate.z) / distance
+    nucleotide_1.coordinate.x += force * ux
+    nucleotide_1.coordinate.y += force * uy
+    nucleotide_1.coordinate.z += force * uz
+    
+def displace_nucleotide(nucleotide: Nucleotide, neighbors: list[Nucleotide],distance_matrix:ndarray, k=1):
+    for neighbor in neighbors:
+        orbital_pull(nucleotide, neighbor, distance_matrix, k=k)
+    
+   
+def crude_simulate(nucleotides: list[Nucleotide], distance_matrix:ndarray, k=1, steps=100):
+    for i in range(steps):
+        print(f"Step: {i} / {steps}")
+        for nt in nucleotides:
+            neighbors = get_5_nearest_nucleotides(nt, nucleotides, distance_matrix)
+            displace_nucleotide(nt, neighbors, distance_matrix, k=k)
+    return nucleotides
+        
+# 4. Nucleotides to Strand
+def nucleotides_to_strand(nucleotides: list[Nucleotide], id="generated_strand") -> Strand:
+    strand = Strand(
+        ID=[id + f"_{nt.index}" for nt in nucleotides],
+        resname=[nt.type for nt in nucleotides],
+        resid=[nt.index for nt in nucleotides],
+        x_1=[nt.coordinate.x for nt in nucleotides],
+        y_1=[nt.coordinate.y for nt in nucleotides],
+        z_1=[nt.coordinate.z for nt in nucleotides],
+    )
+    return strand
 if __name__ == "__main__":
     print("Generating Strand")
     # 1. Select a pbd_id
@@ -73,5 +136,16 @@ if __name__ == "__main__":
     pdb = strand_to_pdb(strand)
     print(pdb)
     path = f"data/pdbs/strand_generator_test_{pdb_id}.pdb"
+    save_pdb(pdb, path)
+    print("Saved PDB to: ", path)
+    
+    # 5. Try out Crude Simulation
+    print("Crude Simulation")
+    distance_matrix = calculate_distance_matrix(nucleotides)
+    nucleotides = crude_simulate(nucleotides, distance_matrix, k=1, steps=100)
+    strand = nucleotides_to_strand(nucleotides)
+    pdb = strand_to_pdb(strand)
+    print(pdb)
+    path = f"data/pdbs/strand_generator_simulation_{pdb_id}.pdb"
     save_pdb(pdb, path)
     print("Saved PDB to: ", path)
