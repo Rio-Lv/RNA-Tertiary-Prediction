@@ -15,7 +15,18 @@ class Labels(BaseModel):
             "z_1": [3.4, 4.5, 5.6],
         }
     )
-
+class Sequences(BaseModel):
+    
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+    df: pd.DataFrame = pd.DataFrame(
+        {
+            "target_id": ["1SCL_A", "1RNK_A", "1RHT_A"],
+            "sequence": ["GGGU", "GGGA", "GAGU"],
+            "temporal_cutoff": ["1995-01-26", "1995-01-26", "1995-01-26"],
+            "description": ["description1", "description2", "description3"],
+            "all_sequences": [">1SCL_1|Chain A|RN...", ">1RNK_1|Chain A|RN...", ">1RHT_1|Chain A|RN..."],
+        }
+    )
 
 # ============= Strand Class =============
 class Strand(BaseModel):
@@ -26,6 +37,13 @@ class Strand(BaseModel):
     y_1: list[float] = [7.8, 9.1]
     z_1: list[float] = [3.4, 4.5]
 
+class Sequence(BaseModel):
+    target_id: str = "1SCL_A"
+    sequence: str = "GGGU"
+    temporal_cutoff: str = "1995-01-26"
+    description: str = "description1"
+    all_sequences: str = ">1SCL_1|Chain A|RN..."
+    
 
 # ============= Grab Strand =============
 def grab_strand(pdb_id: str, labels: Labels) -> Strand:
@@ -34,6 +52,15 @@ def grab_strand(pdb_id: str, labels: Labels) -> Strand:
         **{
             field: filtered_df[field].tolist()
             for field in Strand.model_fields
+            if field in filtered_df.columns
+        }
+    )
+def grab_sequence(pdb_id: str, sequences: Sequences) -> Sequence:
+    filtered_df = sequences.df[sequences.df["target_id"] == pdb_id]
+    return Sequence(
+        **{
+            field: filtered_df[field].tolist()[0]
+            for field in Sequence.model_fields
             if field in filtered_df.columns
         }
     )
@@ -53,13 +80,18 @@ def save_pdb(pdb: str, filename: str):
 
 # ============= Main/Test=============
 if __name__ == "__main__":
+    pdb_id = "2LKR_A"
     labels = Labels(df=pd.read_csv("data/train_labels.csv"))
+    sequences = Sequences(df=pd.read_csv("data/train_sequences.csv"))
     # labels = Labels()
     # strand = Strand()
-    strand = grab_strand("2LKR_A", labels)
-    print(labels)
-    print(strand)
+    strand = grab_strand(pdb_id, labels)
+    sequence = grab_sequence(pdb_id, sequences)
+    # print(labels)
+    # print(strand)
+    print(sequence)
+    
     pdb = strand_to_pdb(strand)
     print(pdb)
-    save_pdb(pdb, "data/pdbs/tools_test_2LKR_A.pdb")
+    save_pdb(pdb, f"data/pdbs/tools_test_{pdb_id}.pdb")
     print("saved")
