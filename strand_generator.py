@@ -48,7 +48,7 @@ def generate_line(
 # Crude Method
 # Lets Take 5 nearest Nucleotides then apply displacement to single nucleotide
 # 1. Calculate Distance Matrix
-def calculate_distance_matrix(nucleotides):
+def calculate_distance_matrix(nucleotides: list[Nucleotide]) -> ndarray:
     matrix = []
     for nt in nucleotides:
         distances = []
@@ -65,7 +65,7 @@ def calculate_distance_matrix(nucleotides):
 
 # 2. Get 5 nearest Nucleotides
 def get_nearest_nucleotides(
-    N:int, nucleotide: Nucleotide, nucleotides: list[Nucleotide], distance_matrix
+    N: int, nucleotide: Nucleotide, nucleotides: list[Nucleotide], distance_matrix
 ) -> list[Nucleotide]:
     distances = distance_matrix[nucleotide.index]
     nearest = np.argsort(distances)
@@ -81,7 +81,6 @@ class OrbitalRadii(BaseModel):
         "GC": 6.5,
     }
 
-
 def orbital_pull(
     nucleotide_1: Nucleotide,
     nucleotide_2: Nucleotide,
@@ -96,13 +95,13 @@ def orbital_pull(
     radii = radii_dict.get(orbital_type, None)
     if radii is None:
         return
-    
+
     distance = distance_matrix[nucleotide_1.index][nucleotide_2.index]
     if distance < radii:
         k = -k
-    
-    force = k * min( 1/abs(distance - radii)**2, 0.4)
-    
+
+    force = k * min(1 / max(abs(distance - radii),0.01) ** 2, 0.4)
+
     ux = (nucleotide_2.coordinate.x - nucleotide_1.coordinate.x) / distance
     uy = (nucleotide_2.coordinate.y - nucleotide_1.coordinate.y) / distance
     uz = (nucleotide_2.coordinate.z - nucleotide_1.coordinate.z) / distance
@@ -110,9 +109,10 @@ def orbital_pull(
     nucleotide_1.coordinate.y += force * uy + random.uniform(-noise, noise)
     nucleotide_1.coordinate.z += force * uz + random.uniform(-noise, noise)
 
+
 def correct_bonds(nucleotides: list[Nucleotide]):
     for i in range(1, len(nucleotides)):
-        nt1 = nucleotides[i-1]
+        nt1 = nucleotides[i - 1]
         nt2 = nucleotides[i]
         distance = (
             (nt1.coordinate.x - nt2.coordinate.x) ** 2
@@ -139,9 +139,7 @@ def displace_nucleotide(
         orbital_pull(nucleotide, neighbor, distance_matrix, k=k)
 
 
-def crude_simulate(
-    N:int,nucleotides: list[Nucleotide], k=1, steps=100
-):
+def crude_simulate(N: int, nucleotides: list[Nucleotide], k=1, steps=100):
     for i in range(steps):
         print(f"Step: {i} / {steps}")
         distance_matrix = calculate_distance_matrix(nucleotides)
@@ -151,8 +149,13 @@ def crude_simulate(
         correct_bonds(nucleotides)
     return nucleotides
 
+def generate_strand(sequence: Sequence) -> Strand:
+    strand, nucleotides = generate_line(sequence)
+    nucleotides = crude_simulate(5, nucleotides, k=2, steps=200)
+    strand = nucleotides_to_strand(nucleotides)
+    return strand
 
-# 4. Nucleotides to Strand
+# 5. Nucleotides to Strand
 def nucleotides_to_strand(
     nucleotides: list[Nucleotide], id="generated_strand"
 ) -> Strand:
@@ -168,28 +171,25 @@ def nucleotides_to_strand(
 
 
 if __name__ == "__main__":
-    print("Generating Strand")
-    # 1. Select a pbd_id
-    pdb_id = "2LKR_A"
-    # 2. Load Sequence data
-    sequences = Sequences(df=pd.read_csv("data/train_sequences.csv"))
-    sequence = grab_sequence(pdb_id, sequences)
-    # 3. Generate Fake Strand
-    strand, nucleotides = generate_line(sequence)
-    # 4. Save to Examine PDB
-    pdb = strand_to_pdb(strand)
-    print(pdb)
-    path = f"data/pdbs/strand_generator_test_{pdb_id}.pdb"
-    save_pdb(pdb, path)
-    print("Saved PDB to: ", path)
-
-    # 5. Try out Crude Simulation
-    print("Crude Simulation")
-    N = 20 # number of nearest neighbors
-    nucleotides = crude_simulate(N, nucleotides, k=2, steps=200)
-    strand = nucleotides_to_strand(nucleotides)
-    pdb = strand_to_pdb(strand)
-    print(pdb)
-    path = f"data/pdbs/strand_generator_simulation_{pdb_id}_200.pdb"
-    save_pdb(pdb, path)
-    print("Saved PDB to: ", path)
+    generator_tests_path = "data/generator_tests"
+    labels_path = "data/train_labels.csv"
+    sequences_path = "data/train_sequences.csv"
+    # labels_path = "data/validation_labels.csv"
+    # sequences_path = "data/validation_sequences.csv"
+    labels = Labels(df=pd.read_csv(labels_path))
+    sequences = Sequences(df=pd.read_csv(sequences_path))
+    
+    sequence = grab_random_sequence(sequences)
+    pdb_id = sequence.target_id
+    generated_strand = generate_strand(sequence)
+    reference_strand = grab_strand(pdb_id, labels)
+    generated_pdb = strand_to_pdb(generated_strand)
+    reference_pdb = strand_to_pdb(reference_strand)
+    # save with pdb_id
+    save_path_generator = f"{generator_tests_path}/{pdb_id}_generated.pdb"
+    save_path_reference = f"{generator_tests_path}/{pdb_id}_reference.pdb"
+    save_pdb(generated_pdb, save_path_generator)
+    save_pdb(reference_pdb, save_path_reference)
+    # compute similarity
+    compute_similarity(save_path_generator, save_path_reference)
+    print("Completed Generation and Comparison for", pdb_id)

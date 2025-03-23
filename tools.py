@@ -1,6 +1,8 @@
 import os
 import pandas as pd
 from pydantic import BaseModel, ConfigDict
+import random
+import time
 
 
 # ============= Labels Class =============
@@ -78,6 +80,18 @@ def grab_sequence(pdb_id: str, sequences: Sequences) -> Sequence:
     )
 
 
+def grab_random_sequence(sequences: Sequences) -> Sequence:
+    sequences_length = len(sequences.df)
+    random_index = random.randint(0, sequences_length)
+    return Sequence(
+        **{
+            field: sequences.df[field].tolist()[random_index]
+            for field in Sequence.model_fields
+            if field in sequences.df.columns
+        }
+    )
+
+
 # ============= Strand to PDB =============
 def strand_to_pdb(strand: Strand) -> str:
     pdb = ""
@@ -85,22 +99,35 @@ def strand_to_pdb(strand: Strand) -> str:
         # empty values are currently stored as -1e+18
         # if x y or z are < -1e+6, replace all 3 with space
         index = f"{i+1:5}"
-        ca= "CA"
+        ca = "CA"
         resname = f"{strand.resname[i]:3}"
         resid = f"A{strand.resid[i]:4}"
         x_1 = strand.x_1[i]
         y_1 = strand.y_1[i]
         z_1 = strand.z_1[i]
-   
+
         suffix = "1.00  0.00"
-        
-        if x_1 < -1e6 or y_1 < -1e6 or z_1 < -1e6:
+
+        if (
+            x_1 < -1e6
+            or y_1 < -1e6
+            or z_1 < -1e6
+            or x_1 == ""
+            or y_1 == ""
+            or z_1 == ""
+        ):
             continue
-        
+
         x_1 = f"{strand.x_1[i]:8.3f}"
         y_1 = f"{strand.y_1[i]:8.3f}"
         z_1 = f"{strand.z_1[i]:8.3f}"
-        
+
+        # if nan swap with space
+        # if x_1 == "nan" or y_1 == "nan" or z_1 == "nan":
+        #     x_1 = "        "
+        #     y_1 = "        "
+        #     z_1 = "        "
+
         pdb += f"ATOM  {index}  {ca}  {resname} {resid}    {x_1} {y_1} {z_1} {suffix}\n"
     return pdb
 
@@ -114,8 +141,17 @@ def save_pdb(pdb: str, filename: str):
 # ============= Compute Similarity =============
 def compute_similarity(path_1: str, path_2: str):
     # use USalign to compute similarity
-    os.system(f"USalign/USalign {path_1} {path_2}")
-
+    # loop check if file exists max 3s
+    start = time.time()
+    found = False
+    while not os.path.exists(path_1) or not os.path.exists(path_2):
+        if time.time() - start > 3:
+            break
+    if os.path.exists(path_1) and os.path.exists(path_2): 
+        os.system(f"USalign/USalign {path_1} {path_2}")
+    else:
+        print("Files not found")
+    return
 
 # ============= Main/Test=============
 if __name__ == "__main__":
