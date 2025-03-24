@@ -42,18 +42,7 @@ def generate_strand(sequence: Sequence) -> Strand:
 
 
 # 5. Nucleotides to Strand
-def nucleotides_to_strand(
-    nucleotides: list[Nucleotide], id="generated_strand"
-) -> Strand:
-    strand = Strand(
-        ID=[id + f"_{nt.index}" for nt in nucleotides],
-        resname=[nt.type for nt in nucleotides],
-        resid=[nt.index for nt in nucleotides],
-        x_1=[nt.coordinate.x for nt in nucleotides],
-        y_1=[nt.coordinate.y for nt in nucleotides],
-        z_1=[nt.coordinate.z for nt in nucleotides],
-    )
-    return strand
+
 
 
 if __name__ == "__main__":

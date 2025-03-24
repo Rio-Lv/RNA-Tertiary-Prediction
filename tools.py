@@ -4,6 +4,7 @@ from pydantic import BaseModel, ConfigDict
 import random
 import time
 from typing import Literal
+import math
 
 # ============= Coordinate Class =============
 class Coordinate(BaseModel):
@@ -17,6 +18,7 @@ class Nucleotide(BaseModel):
     index: int
     type: Literal["A", "C", "G", "U"]
     coordinate: Coordinate = Coordinate(x=0, y=0, z=0)
+
 
 
 # ============= Labels Class =============
@@ -34,6 +36,18 @@ class Labels(BaseModel):
     )
 
 
+
+# ============= Strand Class =============
+class Strand(BaseModel):
+    ID: list[str] = ["1SCL_A_1", "1SCL_A_2"]
+    resname: list[str] = ["G", "G"]
+    resid: list[int] = [1, 2]
+    x_1: list[float] = [12.3, 15.6]
+    y_1: list[float] = [7.8, 9.1]
+    z_1: list[float] = [3.4, 4.5]
+
+
+# ============= Sequences Class =============
 class Sequences(BaseModel):
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
@@ -51,17 +65,7 @@ class Sequences(BaseModel):
         }
     )
 
-
-# ============= Strand Class =============
-class Strand(BaseModel):
-    ID: list[str] = ["1SCL_A_1", "1SCL_A_2"]
-    resname: list[str] = ["G", "G"]
-    resid: list[int] = [1, 2]
-    x_1: list[float] = [12.3, 15.6]
-    y_1: list[float] = [7.8, 9.1]
-    z_1: list[float] = [3.4, 4.5]
-
-
+# ============= Sequence Class =============
 class Sequence(BaseModel):
     target_id: str = "1SCL_A"
     sequence: str = "GGGU"
@@ -82,7 +86,7 @@ def grab_strand(pdb_id: str, labels: Labels) -> Strand:
         }
     )
 
-
+# ============= Grab Sequence by ID =============
 def grab_sequence(pdb_id: str, sequences: Sequences) -> Sequence:
     filtered_df = sequences.df[sequences.df["target_id"] == pdb_id]
     return Sequence(
@@ -93,7 +97,7 @@ def grab_sequence(pdb_id: str, sequences: Sequences) -> Sequence:
         }
     )
 
-
+# ============= Grab Random Sequence =============
 def grab_random_sequence(sequences: Sequences) -> Sequence:
     sequences_length = len(sequences.df)
     random_index = random.randint(0, sequences_length)
@@ -104,47 +108,113 @@ def grab_random_sequence(sequences: Sequences) -> Sequence:
             if field in sequences.df.columns
         }
     )
+    
+# ============= Strand to Nucleotides =============
+def strand_to_nucleotides(strand: Strand) -> list[Nucleotide]:
+    nucleotides = [
+        Nucleotide(
+            index=i,
+            type=strand.resname[i],
+            coordinate=Coordinate(
+                x=strand.x_1[i],
+                y=strand.y_1[i],
+                z=strand.z_1[i],
+            ),
+        )
+        for i in range(len(strand.ID))
+    ]
+    return nucleotides
 
+# ============= Nucleotides to Strand =============
+def nucleotides_to_strand(
+    nucleotides: list[Nucleotide], id="generated_strand"
+) -> Strand:
+    strand = Strand(
+        ID=[id + f"_{nt.index}" for nt in nucleotides],
+        resname=[nt.type for nt in nucleotides],
+        resid=[nt.index for nt in nucleotides],
+        x_1=[nt.coordinate.x for nt in nucleotides],
+        y_1=[nt.coordinate.y for nt in nucleotides],
+        z_1=[nt.coordinate.z for nt in nucleotides],
+    )
+    return strand
+
+# ============= Rotate Nucleotides =============
+def rotate_nucleotides(nucleotides: list[Nucleotide], rx=0, ry=0, rz=0):
+    """
+    Rotate nucleotides around their centroid using extrinsic rotations in x, y, z order.
+    Angles are expected in degrees.
+    """
+    # Convert degrees to radians
+    rx = math.radians(rx)
+    ry = math.radians(ry)
+    rz = math.radians(rz)
+
+    # Calculate centroid
+    cx = sum(nt.coordinate.x for nt in nucleotides) / len(nucleotides)
+    cy = sum(nt.coordinate.y for nt in nucleotides) / len(nucleotides)
+    cz = sum(nt.coordinate.z for nt in nucleotides) / len(nucleotides)
+
+    # Precompute trigonometric values
+    cos_x, sin_x = math.cos(rx), math.sin(rx)
+    cos_y, sin_y = math.cos(ry), math.sin(ry)
+    cos_z, sin_z = math.cos(rz), math.sin(rz)
+
+    # Combined rotation matrix elements (extrinsic: Rz * Ry * Rx)
+    # Derived from matrix multiplication of Rz @ Ry @ Rx
+    m00 = cos_z * cos_y
+    m01 = cos_z * sin_y * sin_x - sin_z * cos_x
+    m02 = cos_z * sin_y * cos_x + sin_z * sin_x
+    m10 = sin_z * cos_y
+    m11 = sin_z * sin_y * sin_x + cos_z * cos_x
+    m12 = sin_z * sin_y * cos_x - cos_z * sin_x
+    m20 = -sin_y
+    m21 = cos_y * sin_x
+    m22 = cos_y * cos_x
+
+    # Apply combined rotation to each nucleotide
+    for nt in nucleotides:
+        # Translate to centroid origin
+        x = nt.coordinate.x - cx
+        y = nt.coordinate.y - cy
+        z = nt.coordinate.z - cz
+
+        # Apply rotation matrix
+        new_x = x * m00 + y * m01 + z * m02
+        new_y = x * m10 + y * m11 + z * m12
+        new_z = x * m20 + y * m21 + z * m22
+
+        # Translate back
+        nt.coordinate.x = new_x + cx
+        nt.coordinate.y = new_y + cy
+        nt.coordinate.z = new_z + cz
+
+    return nucleotides
 
 # ============= Strand to PDB =============
 def strand_to_pdb(strand: Strand) -> str:
     pdb = ""
     for i in range(len(strand.ID)):
-        # empty values are currently stored as -1e+18
-        # if x y or z are < -1e+6, replace all 3 with space
-        index = f"{i+1:5}"
-        ca = "CA"
-        resname = f"{strand.resname[i]:3}"
-        resid = f"A{strand.resid[i]:4}"
-        x_1 = strand.x_1[i]
-        y_1 = strand.y_1[i]
-        z_1 = strand.z_1[i]
-
-        suffix = "1.00  0.00"
-
+        # Skip if coordinates are missing (using -1e18 as per your comment)
         if (
-            x_1 < -1e6
-            or y_1 < -1e6
-            or z_1 < -1e6
-            or x_1 == ""
-            or y_1 == ""
-            or z_1 == ""
+            strand.x_1[i] < -1e10
+            or strand.y_1[i] < -1e10
+            or strand.z_1[i] < -1e10
+            or math.isnan(strand.x_1[i])
+            or math.isnan(strand.y_1[i])
+            or math.isnan(strand.z_1[i])
         ):
             continue
 
-        x_1 = f"{strand.x_1[i]:8.3f}"
-        y_1 = f"{strand.y_1[i]:8.3f}"
-        z_1 = f"{strand.z_1[i]:8.3f}"
-
-        # if nan swap with space
-        # if x_1 == "nan" or y_1 == "nan" or z_1 == "nan":
-        #     x_1 = "        "
-        #     y_1 = "        "
-        #     z_1 = "        "
-
-        pdb += f"ATOM  {index}  {ca}  {resname} {resid}    {x_1} {y_1} {z_1} {suffix}\n"
+        # Format fields according to PDB standard
+        pdb_line = (
+            f"ATOM  {i+1:5}  CA {strand.resname[i]:>3} A{strand.resid[i]:4}    "
+            f"{strand.x_1[i]:8.3f}{strand.y_1[i]:8.3f}{strand.z_1[i]:8.3f}"
+            f"  1.00  0.00"
+        )
+        pdb += pdb_line + "\n"
+    
     return pdb
-
 
 # ============= Save PDB =============
 def save_pdb(pdb: str, filename: str):
@@ -157,36 +227,52 @@ def compute_similarity(path_1: str, path_2: str):
     # use USalign to compute similarity
     # loop check if file exists max 3s
     start = time.time()
-    found = False
     while not os.path.exists(path_1) or not os.path.exists(path_2):
         if time.time() - start > 3:
             break
-    if os.path.exists(path_1) and os.path.exists(path_2): 
+    if os.path.exists(path_1) and os.path.exists(path_2):
         os.system(f"USalign/USalign {path_1} {path_2}")
     else:
         print("Files not found")
     return
 
+
 # ============= Main/Test=============
 if __name__ == "__main__":
-    # pdb_id = "2LKR_A" # exists in training_labels.csv
-    pdb_id = "R1116"  # exists in validation_labels.csv
-    labels = Labels(df=pd.read_csv("data/validation_labels.csv"))
-    sequences = Sequences(df=pd.read_csv("data/validation_sequences.csv"))
-    # labels = Labels()
-    # strand = Strand()
+    # 1. choose data paths
+    sequences_path = "data/validation_sequences.csv"
+    labels_path = "data/validation_labels.csv"
+    
+    # 2. init sequences and labels
+    sequences = Sequences(df=pd.read_csv(sequences_path))
+    labels = Labels(df=pd.read_csv(labels_path))
+    
+    # 3. grab random sequence and strand
+    # sequence = grab_random_sequence(sequences)
+    # pdb_id = sequence.target_id
+    pdb_id = "R1138"
     strand = grab_strand(pdb_id, labels)
-    sequence = grab_sequence(pdb_id, sequences)
-    # print(labels)
-    # print(strand)
-    print(sequence)
-
-    pdb = strand_to_pdb(strand)
-    print(pdb)
-    path = f"data/pdbs/tools_test_{pdb_id}.pdb"
-    save_pdb(pdb, path)
-    print("saved to: ", path)
-
-    path_1 = f"data/pdbs/strand_generator_simulation_2LKR_A.pdb"
-    path_2 = f"data/pdbs/tools_test_R1116.pdb"
-    compute_similarity(path_1, path_2)
+    
+    # 4. convert strand to nucleotides
+    nucleotides = strand_to_nucleotides(strand)
+    
+    # 5. rotate nucleotides
+    nucleotides_rotated = rotate_nucleotides(nucleotides, rx=0, ry=0, rz=90)
+    
+    # 6. convert nucleotides to strand
+    strand_rotated = nucleotides_to_strand(nucleotides_rotated)
+    
+    # 7. convert both strands to pdb
+    pdb_strand = strand_to_pdb(strand)
+    pdb_strand_rotated = strand_to_pdb(strand_rotated)
+    
+    # 8. save both pdb files
+    save_path_strand = f"data/tools_test/{pdb_id}_strand.pdb"
+    save_path_strand_rotated = f"data/tools_test/{pdb_id}_strand_rotated.pdb"
+    save_pdb(pdb_strand, save_path_strand)
+    save_pdb(pdb_strand_rotated, save_path_strand_rotated)
+    
+    # 9. compute similarity
+    compute_similarity(save_path_strand, save_path_strand_rotated)
+    print("Completed Generation and Comparison for", pdb_id)
+    
