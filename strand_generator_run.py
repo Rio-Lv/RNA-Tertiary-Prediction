@@ -9,34 +9,11 @@ from numpy import ndarray
 from strand_generator_crude import crude_simulate
 
 
-def generate_rand_coord(range=100) -> Coordinate:
-    x = random.uniform(0, range)
-    y = random.uniform(0, range)
-    z = random.uniform(0, range)
-    return Coordinate(x=x, y=y, z=z)
-
-
-def generate_line(
-    sequence: Sequence, id="generate_strand"
-) -> Tuple[Strand, list[Nucleotide]]:
-    nucleotides: list[Nucleotide] = [
-        Nucleotide(index=i, type=nt, coordinate=Coordinate(x=0, y=0, z=i * 6.5))
-        for i, nt in enumerate(sequence.sequence)
-    ]
-    strand = Strand(
-        ID=[id + f"_{i}" for i in range(1, len(nucleotides) + 1)],
-        resname=[nt.type for nt in nucleotides],
-        resid=[i for i in range(1, len(nucleotides) + 1)],
-        x_1=[nt.coordinate.x for nt in nucleotides],
-        y_1=[nt.coordinate.y for nt in nucleotides],
-        z_1=[nt.coordinate.z for nt in nucleotides],
-    )
-    return strand, nucleotides
 
 # 4. Generate Strand - Crude Simulation
 def generate_strand(sequence: Sequence) -> Strand:
-    strand, nucleotides = generate_line(sequence)
-    nucleotides = crude_simulate(5, nucleotides, k=2, steps=200)
+    nucleotides = sequence_to_nucleotide_line(sequence)
+    nucleotides = crude_simulate(5, nucleotides, k=2, steps=100)
     strand = nucleotides_to_strand(nucleotides)
     return strand
 

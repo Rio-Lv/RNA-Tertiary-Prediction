@@ -68,28 +68,6 @@ def orbital_pull(
     nucleotide_1.coordinate.z += force * uz + random.uniform(-noise, noise)
 
 
-def correct_bonds(nucleotides: list[Nucleotide]):
-    for i in range(1, len(nucleotides)):
-        nt1 = nucleotides[i - 1]
-        nt2 = nucleotides[i]
-        distance = (
-            (nt1.coordinate.x - nt2.coordinate.x) ** 2
-            + (nt1.coordinate.y - nt2.coordinate.y) ** 2
-            + (nt1.coordinate.z - nt2.coordinate.z) ** 2
-        ) ** 0.5
-        d = distance - 6.5
-        ux = (nt2.coordinate.x - nt1.coordinate.x) / distance
-        uy = (nt2.coordinate.y - nt1.coordinate.y) / distance
-        uz = (nt2.coordinate.z - nt1.coordinate.z) / distance
-        dx = ux * d
-        dy = uy * d
-        dz = uz * d
-        for nt in nucleotides[i:]:
-            nt.coordinate.x -= dx
-            nt.coordinate.y -= dy
-            nt.coordinate.z -= dz
-
-
 def displace_nucleotide(
     nucleotide: Nucleotide, neighbors: list[Nucleotide], distance_matrix: ndarray, k=1
 ):
@@ -104,6 +82,6 @@ def crude_simulate(N: int, nucleotides: list[Nucleotide], k=1, steps=100):
         for nt in nucleotides:
             neighbors = get_nearest_nucleotides(N, nt, nucleotides, distance_matrix)
             displace_nucleotide(nt, neighbors, distance_matrix, k=k)
-        correct_bonds(nucleotides)
+        contract_nucleotides(nucleotides)
     return nucleotides
 

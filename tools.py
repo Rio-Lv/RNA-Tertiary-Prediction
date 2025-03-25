@@ -3,7 +3,7 @@ import pandas as pd
 from pydantic import BaseModel, ConfigDict
 import random
 import time
-from typing import Literal
+from typing import Literal, Tuple
 import math
 
 # ============= Coordinate Class =============
@@ -109,6 +109,16 @@ def grab_random_sequence(sequences: Sequences) -> Sequence:
         }
     )
     
+# ============= Sequence to Nucleotide Line =============
+def sequence_to_nucleotide_line(
+    sequence: Sequence, id="generate_strand"
+) -> list[Nucleotide]:
+    nucleotides: list[Nucleotide] = [
+        Nucleotide(index=i, type=nt, coordinate=Coordinate(x=0, y=0, z=i * 6.5))
+        for i, nt in enumerate(sequence.sequence)
+    ]
+
+    return nucleotides
 # ============= Strand to Nucleotides =============
 def strand_to_nucleotides(strand: Strand) -> list[Nucleotide]:
     nucleotides = [
@@ -140,7 +150,7 @@ def nucleotides_to_strand(
     return strand
 
 # ============= Rotate Nucleotides =============
-def rotate_nucleotides(nucleotides: list[Nucleotide], rx=0, ry=0, rz=0):
+def rotate_nucleotides(nucleotides: list[Nucleotide], rx:float=0, ry:float=0, rz:float=0)-> list[Nucleotide]:
     """
     Rotate nucleotides around their centroid using extrinsic rotations in x, y, z order.
     Angles are expected in degrees.
@@ -191,6 +201,34 @@ def rotate_nucleotides(nucleotides: list[Nucleotide], rx=0, ry=0, rz=0):
 
     return nucleotides
 
+# ============= Contract Nucleotides =============
+def contract_nucleotides(nucleotides: list[Nucleotide]):
+    """_summary_
+    if the distance between two nucleotides is not 6.5, displace whole strand
+
+    Args:
+        nucleotides (list[Nucleotide]): _description_
+    """
+    for i in range(1, len(nucleotides)):
+        nt1 = nucleotides[i - 1]
+        nt2 = nucleotides[i]
+        distance = (
+            (nt1.coordinate.x - nt2.coordinate.x) ** 2
+            + (nt1.coordinate.y - nt2.coordinate.y) ** 2
+            + (nt1.coordinate.z - nt2.coordinate.z) ** 2
+        ) ** 0.5
+        d = distance - 6.5
+        ux = (nt2.coordinate.x - nt1.coordinate.x) / distance
+        uy = (nt2.coordinate.y - nt1.coordinate.y) / distance
+        uz = (nt2.coordinate.z - nt1.coordinate.z) / distance
+        dx = ux * d
+        dy = uy * d
+        dz = uz * d
+        for nt in nucleotides[i:]:
+            nt.coordinate.x -= dx
+            nt.coordinate.y -= dy
+            nt.coordinate.z -= dz
+
 # ============= Strand to PDB =============
 def strand_to_pdb(strand: Strand) -> str:
     pdb = ""
@@ -221,7 +259,6 @@ def save_pdb(pdb: str, filename: str):
     with open(filename, "w") as f:
         f.write(pdb)
 
-
 # ============= Compute Similarity =============
 def compute_similarity(path_1: str, path_2: str):
     # use USalign to compute similarity
@@ -248,9 +285,11 @@ if __name__ == "__main__":
     labels = Labels(df=pd.read_csv(labels_path))
     
     # 3. grab random sequence and strand
-    # sequence = grab_random_sequence(sequences)
-    # pdb_id = sequence.target_id
-    pdb_id = "R1138"
+    sequence = grab_random_sequence(sequences)
+    pdb_id = sequence.target_id
+    # # 3.1 optionally, grab a specific strand
+    # pdb_id = "R1138"
+    
     strand = grab_strand(pdb_id, labels)
     
     # 4. convert strand to nucleotides
