@@ -19,6 +19,7 @@ class Generator:
         "C": [0, 0, 1, 0],
         "G": [0, 0, 0, 1],
     }
+    n_neighbours: int = 4   
 
     def __init__(self, nucleotides: list[Nucleotide]):
         self.nucleotides = nucleotides
@@ -52,7 +53,7 @@ class Generator:
         # get 4 nearest neighbors
         distance_matrix = self.distance_matrix
         nearest = torch.argsort(distance_matrix[base_index])
-        nearest = nearest[1:5]
+        nearest = nearest[1:self.n_neighbours + 1]
         # get input indices (base + 4 nearest)
         input_indices = [base_index] + nearest.tolist()
 
@@ -125,11 +126,13 @@ if __name__ == "__main__":
 
     print("--------------------------------------------------------")
     
-    print("4. Input Tensor:")
+    print("4. Generating Inputs:")
 
     # 4.1. Generate Input Tensor
     generator_inputs = generator.generate_inputs()
     
+    print("--------------------------------------------------------")
+    # 5. Forward Pass for Generator
     for i in range(5):
         # print(generator_inputs[i])
         print(generator.forward(generator_inputs[i]))
