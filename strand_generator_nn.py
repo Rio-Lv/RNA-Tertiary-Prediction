@@ -48,7 +48,7 @@ class Generator:
                 distance_matrix[i][j] = distance
         self.distance_matrix = distance_matrix
 
-    def generate_input(self, base_index: int) -> torch.Tensor:
+    def index_to_input(self, base_index: int) -> torch.Tensor:
         # get 4 nearest neighbors
         distance_matrix = self.distance_matrix
         nearest = torch.argsort(distance_matrix[base_index])
@@ -61,11 +61,18 @@ class Generator:
         inputs = []
         for i in input_indices:
             nt = self.nucleotides[i]
-            inputs.append(
-                [nt.coordinate.x, nt.coordinate.y, nt.coordinate.z] + type_map[nt.type]
-            )
-
+            inputs += [nt.coordinate.x, nt.coordinate.y, nt.coordinate.z] 
+            inputs += type_map[nt.type]
+            
         return torch.tensor(inputs)
+    
+    def forward(self, inputs: torch.Tensor) -> torch.Tensor:
+        return self.model(inputs)
+    def generate_inputs(self)->list[torch.Tensor]:
+        inputs_list = []
+        for i in range(len(self.nucleotides)):
+            inputs_list.append(self.index_to_input(i)) 
+        return inputs_list
 
 
 # =================== Model Creation ===================
@@ -74,18 +81,28 @@ class Generator:
 
 # =================== Model Validation ===================
 if __name__ == "__main__":
+    
+    
     print("============ Strand Generator Neural Network ===========")
+    
+    
     print("--------------------------------------------------------")
+    
     print("1. Checking for MPS Device")
+    
+    # 1.1. Check for MPS Device
     if torch.backends.mps.is_available():
         mps_device = torch.device("mps")
         x = torch.ones(1, device=mps_device)
         print(x)
     else:
         print("MPS device not found.")
+        
     print("--------------------------------------------------------")
+    
     print("2. Getting Random Sequence for Model Testing")
-    # 1.1. Load Sequences and Labels
+    
+    # 2.1. Load Sequences and Labels
     labels_path = "data/validation_labels.csv"
     sequences_path = "data/validation_sequences.csv"
     labels = Labels(df=pd.read_csv(labels_path))
@@ -93,17 +110,26 @@ if __name__ == "__main__":
     print("labels_path:", labels_path)
     print("sequences_path:", sequences_path)
 
-    # 1.2. Grab Random Sequence
+    # 2.2. Grab Random Sequence
     sequence = grab_random_sequence(sequences)
     nucleotides = sequence_to_nucleotide_line(sequence)
 
     print("--------------------------------------------------------")
+    
     print("3. Initialising Generator")
+    
+    # 3.1. Initialise Generator
     generator = Generator(nucleotides=nucleotides)
     print(generator.distance_matrix)
     print(generator.model)
-    
+
     print("--------------------------------------------------------")
+    
     print("4. Input Tensor:")
-    input_tensor = generator.generate_input(0)
-    print(input_tensor)
+
+    # 4.1. Generate Input Tensor
+    generator_inputs = generator.generate_inputs()
+    
+    for i in range(5):
+        # print(generator_inputs[i])
+        print(generator.forward(generator_inputs[i]))
