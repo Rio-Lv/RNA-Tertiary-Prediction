@@ -1,3 +1,4 @@
+# ============= Imports =============
 import os
 import pandas as pd
 from pydantic import BaseModel, ConfigDict
@@ -5,6 +6,8 @@ import random
 import time
 from typing import Literal, Tuple
 import math
+import numpy as np
+from numpy import ndarray
 
 # ============= Coordinate Class =============
 class Coordinate(BaseModel):
@@ -18,8 +21,6 @@ class Nucleotide(BaseModel):
     index: int
     type: Literal["A", "C", "G", "U"]
     coordinate: Coordinate = Coordinate(x=0, y=0, z=0)
-
-
 
 # ============= Labels Class =============
 class Labels(BaseModel):
@@ -201,6 +202,30 @@ def rotate_nucleotides(nucleotides: list[Nucleotide], rx:float=0, ry:float=0, rz
 
     return nucleotides
 
+# ============ Get Neighboring Nucleotides =============
+# 2. Get N nearest Nucleotides
+def get_nearest_nucleotides(
+    N: int, index:int, nucleotides: list[Nucleotide], distance_matrix
+) -> list[Nucleotide]:
+    distances = distance_matrix[index]
+    nearest = np.argsort(distances)
+    return [nucleotides[i] for i in nearest[1:N]]
+
+# ============= Calculate Distance Matrix =============
+def calculate_distance_matrix(nucleotides: list[Nucleotide]) -> ndarray:
+    matrix = []
+    for nt in nucleotides:
+        distances = []
+        for nt2 in nucleotides:
+            distance = (
+                (nt.coordinate.x - nt2.coordinate.x) ** 2
+                + (nt.coordinate.y - nt2.coordinate.y) ** 2
+                + (nt.coordinate.z - nt2.coordinate.z) ** 2
+            ) ** 0.5
+            distances.append(distance)
+        matrix.append(distances)
+    return np.array(matrix)
+
 # ============= Contract Nucleotides =============
 def contract_nucleotides(nucleotides: list[Nucleotide]):
     """_summary_
@@ -268,7 +293,7 @@ def compute_similarity(path_1: str, path_2: str):
         if time.time() - start > 3:
             break
     if os.path.exists(path_1) and os.path.exists(path_2):
-        os.system(f"USalign/USalign {path_1} {path_2}")
+        os.system(f"../USalign/USalign {path_1} {path_2}")
     else:
         print("Files not found")
     return

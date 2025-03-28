@@ -1,4 +1,4 @@
-from tools import *
+from src.tools import *
 from pydantic import BaseModel
 
 import torch
@@ -133,7 +133,11 @@ if __name__ == "__main__":
 
     # 2.2. Grab Random Sequence
     sequence = grab_random_sequence(sequences)
+    while len(sequence.sequence) < 5: # make sure sequence is long enough
+        sequence = grab_random_sequence(sequences)
     nucleotides = sequence_to_nucleotide_line(sequence)
+    print(" Grabbed Random Sequence:", sequence.target_id)
+    print("Sequence:", sequence.sequence)
 
     print("--------------------------------------------------------")
 
@@ -156,10 +160,10 @@ if __name__ == "__main__":
     print("--------------------------------------------------------")
     # 5. Forward Pass for Generator
     displacement_example = generator.forward(example_input)
-    print("Displacement Example:")
+    print("Displacement Tensor Example:")
     print(displacement_example)
     
-    # 6. Step for Generator
+    # 6. Step for Generator Example
     # 6.1. Step print x, y, z coordinates of first nucleotide
     print("Initial Coordinates of First Nucleotide:")
     print(f"x: {generator.nucleotides[0].coordinate.x}, y: {generator.nucleotides[0].coordinate.y}, z: {generator.nucleotides[0].coordinate.z}")
@@ -170,3 +174,13 @@ if __name__ == "__main__":
     print("Updated Coordinates of First Nucleotide:")
     print(f"x: {generator.nucleotides[0].coordinate.x}, y: {generator.nucleotides[0].coordinate.y}, z: {generator.nucleotides[0].coordinate.z}")
     print("--------------------------------------------------------")
+    # simulate for 100 steps    
+    n_steps = 5
+    for i in range(n_steps): 
+        print(f"Step: {i+1} / {n_steps}")
+        generator.step()
+    print("Simulation Completed")
+    print(f"x: {generator.nucleotides[0].coordinate.x}, y: {generator.nucleotides[0].coordinate.y}, z: {generator.nucleotides[0].coordinate.z}")
+    
+    #TODO: Create Evaluator NN for GAN, Create Pipeline, So that 
+    # Generated Can be compared with Real Reference Strands/Nucleotides

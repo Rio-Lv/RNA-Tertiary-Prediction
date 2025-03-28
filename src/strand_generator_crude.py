@@ -5,32 +5,8 @@ from numpy import ndarray
 import numpy as np
 # Crude Method
 # Lets Take 5 nearest Nucleotides then apply displacement to single nucleotide
-# 1. Calculate Distance Matrix
-def calculate_distance_matrix(nucleotides: list[Nucleotide]) -> ndarray:
-    matrix = []
-    for nt in nucleotides:
-        distances = []
-        for nt2 in nucleotides:
-            distance = (
-                (nt.coordinate.x - nt2.coordinate.x) ** 2
-                + (nt.coordinate.y - nt2.coordinate.y) ** 2
-                + (nt.coordinate.z - nt2.coordinate.z) ** 2
-            ) ** 0.5
-            distances.append(distance)
-        matrix.append(distances)
-    return np.array(matrix)
 
-
-# 2. Get 5 nearest Nucleotides
-def get_nearest_nucleotides(
-    N: int, nucleotide: Nucleotide, nucleotides: list[Nucleotide], distance_matrix
-) -> list[Nucleotide]:
-    distances = distance_matrix[nucleotide.index]
-    nearest = np.argsort(distances)
-    return [nucleotides[i] for i in nearest[1:N]]
-
-
-# 3. Displace Nucleotide with some formula
+# 2. Displace Nucleotide with some formula
 class OrbitalRadii(BaseModel):
     radii: dict[str, float] = {
         "AU": 6.5,
@@ -80,8 +56,36 @@ def crude_simulate(N: int, nucleotides: list[Nucleotide], k=1, steps=100):
         print(f"Step: {i} / {steps}")
         distance_matrix = calculate_distance_matrix(nucleotides)
         for nt in nucleotides:
-            neighbors = get_nearest_nucleotides(N, nt, nucleotides, distance_matrix)
+            neighbors = get_nearest_nucleotides(N, nt.index, nucleotides, distance_matrix)
             displace_nucleotide(nt, neighbors, distance_matrix, k=k)
         contract_nucleotides(nucleotides)
     return nucleotides
 
+if __name__ == "__main__":
+    # set dir to file location
+    os.chdir(os.path.dirname(os.path.abspath(__file__)))
+    print("============ Strand Generator ===========")
+    generator_tests_path = "data/generator_tests"
+    labels_path = "data/train_labels.csv"
+    sequences_path = "data/train_sequences.csv"
+    # labels_path = "data/validation_labels.csv"
+    # sequences_path = "data/validation_sequences.csv"
+    labels = Labels(df=pd.read_csv(labels_path))
+    sequences = Sequences(df=pd.read_csv(sequences_path))
+    
+    sequence = grab_random_sequence(sequences)
+    pdb_id = sequence.target_id
+    nucleotides = sequence_to_nucleotide_line(sequence)
+    nucleotides = crude_simulate(5, nucleotides, k=2, steps=100)
+    strand = nucleotides_to_strand(nucleotides)
+    reference_strand = grab_strand(pdb_id, labels)
+    generated_pdb = strand_to_pdb(strand)
+    reference_pdb = strand_to_pdb(reference_strand)
+    # save with pdb_id
+    save_path_generator = f"{generator_tests_path}/{pdb_id}_generated.pdb"
+    save_path_reference = f"{generator_tests_path}/{pdb_id}_reference.pdb"
+    save_pdb(generated_pdb, save_path_generator)
+    save_pdb(reference_pdb, save_path_reference)
+    # compute similarity
+    compute_similarity(save_path_generator, save_path_reference)
+    print("Completed Generation and Comparison for", pdb_id)
