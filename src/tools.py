@@ -8,6 +8,8 @@ from typing import Literal, Tuple
 import math
 import numpy as np
 from numpy import ndarray
+from torch import Tensor
+from typing import Optional
 
 # ============= Coordinate Class =============
 class Coordinate(BaseModel):
@@ -21,6 +23,22 @@ class Nucleotide(BaseModel):
     index: int
     type: Literal["A", "C", "G", "U"]
     coordinate: Coordinate = Coordinate(x=0, y=0, z=0)
+    is_fake: Optional[bool] = None
+    
+    def get_array(self):
+        return [
+                self.coordinate.x,
+                self.coordinate.y,
+                self.coordinate.z,
+                1 if self.type == "A" else 0,
+                1 if self.type == "C" else 0,
+                1 if self.type == "G" else 0,
+                1 if self.type == "U" else 0,
+            ]
+        
+        
+        
+
 
 # ============= Labels Class =============
 class Labels(BaseModel):
@@ -35,7 +53,6 @@ class Labels(BaseModel):
             "z_1": [3.4, 4.5, 5.6],
         }
     )
-
 
 
 # ============= Strand Class =============
@@ -66,6 +83,7 @@ class Sequences(BaseModel):
         }
     )
 
+
 # ============= Sequence Class =============
 class Sequence(BaseModel):
     target_id: str = "1SCL_A"
@@ -87,6 +105,7 @@ def grab_strand(pdb_id: str, labels: Labels) -> Strand:
         }
     )
 
+
 # ============= Grab Sequence by ID =============
 def grab_sequence(pdb_id: str, sequences: Sequences) -> Sequence:
     filtered_df = sequences.df[sequences.df["target_id"] == pdb_id]
@@ -97,6 +116,7 @@ def grab_sequence(pdb_id: str, sequences: Sequences) -> Sequence:
             if field in filtered_df.columns
         }
     )
+
 
 # ============= Grab Random Sequence =============
 def grab_random_sequence(sequences: Sequences) -> Sequence:
@@ -109,7 +129,8 @@ def grab_random_sequence(sequences: Sequences) -> Sequence:
             if field in sequences.df.columns
         }
     )
-    
+
+
 # ============= Sequence to Nucleotide Line =============
 def sequence_to_nucleotide_line(
     sequence: Sequence, id="generate_strand"
@@ -120,6 +141,8 @@ def sequence_to_nucleotide_line(
     ]
 
     return nucleotides
+
+
 # ============= Strand to Nucleotides =============
 def strand_to_nucleotides(strand: Strand) -> list[Nucleotide]:
     nucleotides = [
@@ -136,6 +159,7 @@ def strand_to_nucleotides(strand: Strand) -> list[Nucleotide]:
     ]
     return nucleotides
 
+
 # ============= Nucleotides to Strand =============
 def nucleotides_to_strand(
     nucleotides: list[Nucleotide], id="generated_strand"
@@ -150,8 +174,11 @@ def nucleotides_to_strand(
     )
     return strand
 
+
 # ============= Rotate Nucleotides =============
-def rotate_nucleotides(nucleotides: list[Nucleotide], rx:float=0, ry:float=0, rz:float=0)-> list[Nucleotide]:
+def rotate_nucleotides(
+    nucleotides: list[Nucleotide], rx: float = 0, ry: float = 0, rz: float = 0
+) -> list[Nucleotide]:
     """
     Rotate nucleotides around their centroid using extrinsic rotations in x, y, z order.
     Angles are expected in degrees.
@@ -202,14 +229,16 @@ def rotate_nucleotides(nucleotides: list[Nucleotide], rx:float=0, ry:float=0, rz
 
     return nucleotides
 
+
 # ============ Get Neighboring Nucleotides =============
 # 2. Get N nearest Nucleotides
 def get_nearest_nucleotides(
-    N: int, index:int, nucleotides: list[Nucleotide], distance_matrix
+    N: int, index: int, nucleotides: list[Nucleotide], distance_matrix
 ) -> list[Nucleotide]:
     distances = distance_matrix[index]
     nearest = np.argsort(distances)
-    return [nucleotides[i] for i in nearest[1:N]]
+    return [nucleotides[i] for i in nearest[0:N]]
+
 
 # ============= Calculate Distance Matrix =============
 def calculate_distance_matrix(nucleotides: list[Nucleotide]) -> ndarray:
@@ -225,6 +254,7 @@ def calculate_distance_matrix(nucleotides: list[Nucleotide]) -> ndarray:
             distances.append(distance)
         matrix.append(distances)
     return np.array(matrix)
+
 
 # ============= Contract Nucleotides =============
 def contract_nucleotides(nucleotides: list[Nucleotide]):
@@ -254,6 +284,7 @@ def contract_nucleotides(nucleotides: list[Nucleotide]):
             nt.coordinate.y -= dy
             nt.coordinate.z -= dz
 
+
 # ============= Strand to PDB =============
 def strand_to_pdb(strand: Strand) -> str:
     pdb = ""
@@ -276,13 +307,15 @@ def strand_to_pdb(strand: Strand) -> str:
             f"  1.00  0.00"
         )
         pdb += pdb_line + "\n"
-    
+
     return pdb
+
 
 # ============= Save PDB =============
 def save_pdb(pdb: str, filename: str):
     with open(filename, "w") as f:
         f.write(pdb)
+
 
 # ============= Compute Similarity =============
 def compute_similarity(path_1: str, path_2: str):
@@ -301,42 +334,43 @@ def compute_similarity(path_1: str, path_2: str):
 
 # ============= Main/Test=============
 if __name__ == "__main__":
+    # set dir to file location
+    os.chdir(os.path.dirname(os.path.abspath(__file__)))
     # 1. choose data paths
     sequences_path = "data/validation_sequences.csv"
     labels_path = "data/validation_labels.csv"
-    
+
     # 2. init sequences and labels
     sequences = Sequences(df=pd.read_csv(sequences_path))
     labels = Labels(df=pd.read_csv(labels_path))
-    
+
     # 3. grab random sequence and strand
     sequence = grab_random_sequence(sequences)
     pdb_id = sequence.target_id
     # # 3.1 optionally, grab a specific strand
     # pdb_id = "R1138"
-    
+
     strand = grab_strand(pdb_id, labels)
-    
+
     # 4. convert strand to nucleotides
     nucleotides = strand_to_nucleotides(strand)
-    
+
     # 5. rotate nucleotides
     nucleotides_rotated = rotate_nucleotides(nucleotides, rx=0, ry=0, rz=90)
-    
+
     # 6. convert nucleotides to strand
     strand_rotated = nucleotides_to_strand(nucleotides_rotated)
-    
+
     # 7. convert both strands to pdb
     pdb_strand = strand_to_pdb(strand)
     pdb_strand_rotated = strand_to_pdb(strand_rotated)
-    
+
     # 8. save both pdb files
     save_path_strand = f"data/tools_test/{pdb_id}_strand.pdb"
     save_path_strand_rotated = f"data/tools_test/{pdb_id}_strand_rotated.pdb"
     save_pdb(pdb_strand, save_path_strand)
     save_pdb(pdb_strand_rotated, save_path_strand_rotated)
-    
+
     # 9. compute similarity
     compute_similarity(save_path_strand, save_path_strand_rotated)
     print("Completed Generation and Comparison for", pdb_id)
-    
