@@ -4,6 +4,9 @@ import torch.nn as nn
 from torch.utils.data import DataLoader, random_split
 from tools import *  # Ensure this imports your EvaluatorDataset and any other required functions/classes
 
+# Assume Input Shape is (5, 8) for each nucleotide
+# and the output is a single value (binary classification)
+
 # =================== Model Creation ===================
 class EvaluatorModel(nn.Module):
     def __init__(self):
@@ -11,6 +14,7 @@ class EvaluatorModel(nn.Module):
         # Flatten the input (5, 8) into a vector of size 35
         self.flatten = nn.Flatten()
         # Define a simple fully connected network
+        input_length = 5 * 8 
         self.stack = nn.Sequential(
             nn.Linear(40, 32),
             nn.ReLU(),
@@ -29,6 +33,17 @@ class EvaluatorModel(nn.Module):
 if __name__ == "__main__":
     # Set directory to file location
     os.chdir(os.path.dirname(os.path.abspath(__file__)))
+    
+    print("1. Checking for MPS Device")
+
+    # 1.1. Check for MPS Device
+    if torch.backends.mps.is_available():
+        mps_device = torch.device("mps")
+        x = torch.ones(1, device=mps_device)
+        print(x)
+    else:
+        print("MPS device not found.")
+
     print("============ Strand Evaluator ===========")
 
     # 1. Load the dataset
@@ -53,8 +68,8 @@ if __name__ == "__main__":
     print("2. Model initialized successfully")
 
     # 3. Create DataLoaders for train and test sets
-    train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True)
-    test_loader = DataLoader(test_dataset, batch_size=32, shuffle=False)
+    train_loader = DataLoader(train_dataset, batch_size=128**2, shuffle=True)
+    test_loader = DataLoader(test_dataset, batch_size=128**2, shuffle=False)
     print("3. DataLoaders created successfully")
 
     # 4. Training Loop

@@ -161,6 +161,14 @@ class EvaluatorDataset(Dataset):
         preview_df["is_fake"] = self.is_fake[:5]
         print("Preview of first 5 clusters (flattened):")
         print(preview_df)
+        
+# ============= Generator Dataset Class =============
+class GeneratorDataset(EvaluatorDataset):
+    """
+        Same as EvaluatorDataset but for generator
+    """
+    def __init__(self, fake_clusters:list[Nucleotide], real_clusters:list[Nucleotide]):
+        super().__init__(fake_clusters, real_clusters)
 
 # ============= Grab Strand =============
 def grab_strand(pdb_id: str, labels: Labels) -> Strand:
@@ -355,20 +363,6 @@ def calculate_distance_matrix(nucleotides: list[Nucleotide]) -> ndarray:
         matrix.append(distances)
     return np.array(matrix)
 
-# ============ Get Nucleotide Coordinates =============
-def get_nucleotide_coordinates(nucleotides: list[Nucleotide]) -> np.ndarray:
-    """Extract coordinates as an array of shape (n, 3)."""
-    return np.array([[nt.coordinate.x, nt.coordinate.y, nt.coordinate.z] for nt in nucleotides])
-
-def get_nearest_nucleotides_kdtree(nucleotides: list[Nucleotide], k: int) -> list[list[Nucleotide]]:
-    coords = get_nucleotide_coordinates(nucleotides)
-    tree = cKDTree(coords)
-    # Query returns the k nearest neighbors for each point.
-    distances, indices = tree.query(coords, k=k)
-    # Here, we assume you want to include the nucleotide itself (distance 0) as in your original code.
-    nearest_nucleotides = [[nucleotides[i] for i in ind] for ind in indices]
-    return nearest_nucleotides
-
 
 # ============= Contract Nucleotides =============
 def contract_nucleotides(nucleotides: list[Nucleotide]):
@@ -399,7 +393,39 @@ def contract_nucleotides(nucleotides: list[Nucleotide]):
             nt.coordinate.x -= dx
             nt.coordinate.y -= dy
             nt.coordinate.z -= dz
+            
+# ============= Get Nearest Nucleotides using KDTree =============
+def get_nucleotide_coordinates(nucleotides: list[Nucleotide]) -> np.ndarray:
+    """Extract coordinates as an array of shape (n, 3)."""
+    return np.array([[nt.coordinate.x, nt.coordinate.y, nt.coordinate.z] for nt in nucleotides])
 
+def get_nearest_nucleotides_kdtree(nucleotides: list[Nucleotide], k: int) -> list[list[Nucleotide]]:
+    """Return a list of neighbor groups for each nucleotide using cKDTree."""
+    coords = get_nucleotide_coordinates(nucleotides)
+    tree = cKDTree(coords)
+    # Query returns the k nearest neighbors for each point.
+    # Note: Depending on your use case you might want to query for k+1 and remove the point itself.
+    _, indices = tree.query(coords, k=k)
+    # clusters = [[nucleotides[i] for i in ind] for ind in indices]
+    # create new relative nucleotides using dx, dy, dz instead of x, y, z
+    clusters = []
+    for ind in indices:
+        cluster = []
+        for i in ind:
+            nt = nucleotides[i]
+            # create new nucleotide with dx, dy, dz
+            new_nt = Nucleotide(
+                index=nt.index,
+                type=nt.type,
+                coordinate=Coordinate(
+                    x=nt.coordinate.x - nucleotides[ind[0]].coordinate.x,
+                    y=nt.coordinate.y - nucleotides[ind[0]].coordinate.y,
+                    z=nt.coordinate.z - nucleotides[ind[0]].coordinate.z,
+                ),
+            )
+            cluster.append(new_nt)
+        clusters.append(cluster)
+    return clusters
 
 # ============= Strand to PDB =============
 def strand_to_pdb(strand: Strand) -> str:

@@ -2,11 +2,13 @@ import os
 import torch
 from torch import Tensor
 from tools import *
-from strand_generator_crude import crude_simulate as make_fake_nucleotides
+from _strand_generator_crude import crude_simulate as make_fake_nucleotides
 from typing import Tuple
 import random
 import time
 # What best format for the Generator and the Discriminator?
+
+
 
 # =================== Generate Data ===================
 def pdb_id_to_clusters(pdb_id: str, sequences: Sequences, labels: Labels) -> Tuple[list[Tensor], list[Tensor]]:
@@ -94,6 +96,6 @@ if __name__ == "__main__":
     print(f"Data generation took {time_taken:.2f} seconds")
     
     # 2. Save Data
-    # torch.save(dataset, "data/evaluator_dataset.pt")
+    torch.save(dataset, "data/evaluator_dataset.pt")
     # 3. Load Data
     # dataset = torch.load("data/evaluator_dataset.pt")

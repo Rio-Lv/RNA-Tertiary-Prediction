@@ -83,7 +83,7 @@ if __name__ == "__main__":
     sequence = grab_sequence("9G7C_A", sequences)
     pdb_id = sequence.target_id
     nucleotides = sequence_to_nucleotide_line(sequence)
-    nucleotides = crude_simulate(5, nucleotides, k=2, steps=2000)
+    nucleotides = crude_simulate(5, nucleotides, k=1, steps=50)
     strand = nucleotides_to_strand(nucleotides)
     reference_strand = grab_strand(pdb_id, labels)
     generated_pdb = strand_to_pdb(strand)
