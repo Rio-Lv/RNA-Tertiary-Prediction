@@ -18,11 +18,10 @@ class Coordinate(BaseModel):
     y: float
     z: float
 
-
 # ============= Nucleotide Class =============
 class Nucleotide(BaseModel):
     index: int
-    type: Literal["A", "C", "G", "U"]
+    type: Literal["A", "C", "G", "U" , "-"]
     coordinate: Coordinate = Coordinate(x=0, y=0, z=0)
     is_fake: Optional[bool] = None
     
@@ -111,8 +110,8 @@ class EvaluatorDataset(Dataset):
         self.is_fake = is_fake
         self.clusters_removed = clusters_removed
         
-        assert fake_clusters[0].shape == (5, 7), f"Fake Cluster should be of shape (5, 7) not {fake_clusters[0].shape}"
-        assert real_clusters[0].shape == (5, 7), f"Real Cluster should be of shape (5, 7) not {real_clusters[0].shape}"
+        assert fake_clusters[0].shape == (5, 8), f"Fake Cluster should be of shape (5, 8) not {fake_clusters[0].shape}"
+        assert real_clusters[0].shape == (5, 8), f"Real Cluster should be of shape (5, 8) not {real_clusters[0].shape}"
         assert len(fake_clusters) == len(real_clusters), "Fake and Real Clusters should be the same length"
         assert len(fake_clusters) > 0, "Fake Clusters should not be empty"
         assert len(real_clusters) > 0, "Real Clusters should not be empty"
@@ -183,12 +182,27 @@ def grab_random_sequence(sequences: Sequences) -> Sequence:
 
 # ============= Sequence to Nucleotide Line =============
 def sequence_to_nucleotide_line(
-    sequence: Sequence, id="generate_strand"
+    sequence: Sequence
 ) -> list[Nucleotide]:
-    nucleotides: list[Nucleotide] = [
-        Nucleotide(index=i, type=nt, coordinate=Coordinate(x=0, y=0, z=i * 6.5))
-        for i, nt in enumerate(sequence.sequence)
-    ]
+    # nucleotides: list[Nucleotide] = [
+    #     Nucleotide(index=i, type=nt, coordinate=Coordinate(x=0, y=0, z=i * 6.5))
+    #     for i, nt in enumerate(sequence.sequence)
+    # ]
+    nucleotides = []
+    for i, nt in enumerate(sequence.sequence):
+        # Calculate coordinates based on index
+        x = i * 6.5
+        y = random.uniform(-0.5, 0.5)
+        z = random.uniform(-0.5, 0.5)
+        # check if nt is valid NT 
+        if nt in ["A", "C", "G", "U", "-"]:
+            nucleotides.append(
+                Nucleotide(
+                    index=i,
+                    type=nt,
+                    coordinate=Coordinate(x=x, y=y, z=z),
+                )
+            )
 
     return nucleotides
 
@@ -233,15 +247,23 @@ def rotate_nucleotides(
     Rotate nucleotides around their centroid using extrinsic rotations in x, y, z order.
     Angles are expected in degrees.
     """
+    print(nucleotides[0].coordinate.x, nucleotides[0].coordinate.y, nucleotides[0].coordinate.z)
+    print("rotation angles (degrees): ", rx, ry, rz)
     # Convert degrees to radians
     rx = math.radians(rx)
     ry = math.radians(ry)
     rz = math.radians(rz)
+    
+    
+    print("rotation angles (degrees): ", rx, ry, rz)
+    print("rotation angles (radians): ", math.radians(rx), math.radians(ry), math.radians(rz))
 
     # Calculate centroid
     cx = sum(nt.coordinate.x for nt in nucleotides) / len(nucleotides)
     cy = sum(nt.coordinate.y for nt in nucleotides) / len(nucleotides)
     cz = sum(nt.coordinate.z for nt in nucleotides) / len(nucleotides)
+    
+    print("Centroid: ", cx, cy, cz)
 
     # Precompute trigonometric values
     cos_x, sin_x = math.cos(rx), math.sin(rx)
@@ -276,7 +298,9 @@ def rotate_nucleotides(
         nt.coordinate.x = new_x + cx
         nt.coordinate.y = new_y + cy
         nt.coordinate.z = new_z + cz
-
+    # Return rotated nucleotides
+    print("Rotated Nucleotides")
+    # print(nucleotides)
     return nucleotides
 
 
@@ -349,6 +373,10 @@ def strand_to_pdb(strand: Strand) -> str:
             or math.isnan(strand.z_1[i])
         ):
             continue
+        
+        resname = strand.resname[i]
+        if resname == "-":
+            resname = "N" # Unknown nucleotide
 
         # Format fields according to PDB standard
         pdb_line = (
@@ -387,8 +415,10 @@ if __name__ == "__main__":
     # set dir to file location
     os.chdir(os.path.dirname(os.path.abspath(__file__)))
     # 1. choose data paths
-    sequences_path = "data/validation_sequences.csv"
-    labels_path = "data/validation_labels.csv"
+    # sequences_path = "data/validation_sequences.csv"
+    # labels_path = "data/validation_labels.csv"
+    sequences_path = "data/train_sequences.csv"
+    labels_path = "data/train_labels.csv"
 
     # 2. init sequences and labels
     sequences = Sequences(df=pd.read_csv(sequences_path))
@@ -398,7 +428,9 @@ if __name__ == "__main__":
     sequence = grab_random_sequence(sequences)
     pdb_id = sequence.target_id
     # # 3.1 optionally, grab a specific strand
-    # pdb_id = "R1138"
+    # pdb_id = "4V6W_A5" # Big One 2000+ Not Working
+    # pdb_id = "4V4N_A1" # Big One 2000+ Working
+    pdb_id = "6WB1_C" # had non ACGU
 
     strand = grab_strand(pdb_id, labels)
 
