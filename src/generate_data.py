@@ -9,15 +9,14 @@ import time
 # What best format for the Generator and the Discriminator?
 
 # =================== Generate Data ===================
-def pdb_id_to_clusters(pdb_id:str, sequences:Sequences,labels:Labels )-> Tuple[list[Nucleotide], list[Nucleotide]]:
-
+def pdb_id_to_clusters(pdb_id: str, sequences: Sequences, labels: Labels) -> Tuple[list[Tensor], list[Tensor]]:
     max_nucleotides = 100
-    # 1. Use Labels to Generate Real Nucleotides
+    # 1. Generate Real Nucleotides
     strand = grab_strand(pdb_id, labels)
     real_nucleotides = strand_to_nucleotides(strand)[:max_nucleotides]
     real_indices = [nt.index for nt in real_nucleotides]
     
-    # 2. Use Sequences to Generate Fake Nucleotides
+    # 2. Generate Fake Nucleotides
     sequence = grab_sequence(pdb_id, sequences)
     assert len(sequence.sequence) > 5, "Sequence should be longer than 5"
     fake_nucleotides = sequence_to_nucleotide_line(sequence)[:max_nucleotides]
@@ -26,38 +25,29 @@ def pdb_id_to_clusters(pdb_id:str, sequences:Sequences,labels:Labels )-> Tuple[l
     
     assert len(fake_nucleotides) == len(real_nucleotides), "Fake and Real Nucleotides should be the same length"
     
-    # 3. Generate Distance Matrix
-    distance_matrix_fake = calculate_distance_matrix(fake_nucleotides)
-    distance_matrix_real = calculate_distance_matrix(real_nucleotides)
-    # 4. Generate Clusters
+    # 3. Instead of calculating a full distance matrix, use KD-tree to get neighbor indices.
+    k = 5  # Number of neighbors desired
+    fake_neighbors = get_nearest_nucleotides_kdtree(fake_nucleotides, k)
+    real_neighbors = get_nearest_nucleotides_kdtree(real_nucleotides, k)
     
+    # 4. Build clusters as tensors.
     fake_clusters = []
-    for i in range(len(fake_nucleotides)):
-        nearest_nucleotides = get_nearest_nucleotides(
-            5, fake_nucleotides[i].index, fake_nucleotides, distance_matrix_fake
-        )
-        tensor_list = []
-        for nt in nearest_nucleotides:
-            tensor_list.append(nt.get_array())
-            
+    for neighbor_group in fake_neighbors:
+        tensor_list = [nt.get_array() for nt in neighbor_group]
         tensor = Tensor(tensor_list)
-        assert tensor.shape == (5, 8), f"Tensor should be of shape (5, 8) not {tensor.shape}"
+        assert tensor.shape == (k, 8), f"Tensor should be of shape ({k}, 8) not {tensor.shape}"
         fake_clusters.append(tensor)
+        
     real_clusters = []
-    for i in range(len(real_nucleotides)):
-        nearest_nucleotides = get_nearest_nucleotides(
-            5, real_nucleotides[i].index, real_nucleotides, distance_matrix_real
-        )
-        tensor_list = []
-        for nt in nearest_nucleotides:
-            tensor_list.append(nt.get_array())
-            
+    for neighbor_group in real_neighbors:
+        tensor_list = [nt.get_array() for nt in neighbor_group]
         tensor = Tensor(tensor_list)
-        assert tensor.shape == (5, 8), f"Tensor should be of shape (5, 8) not {tensor.shape}"
+        assert tensor.shape == (k, 8), f"Tensor should be of shape ({k}, 8) not {tensor.shape}"
         real_clusters.append(tensor)
-    # 5. return clusters
-    return fake_clusters, real_clusters
     
+    return fake_clusters, real_clusters
+
+
 def generate_data(n_sequences:int = 5) -> EvaluatorDataset:
     start_time = time.time()
     

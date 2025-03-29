@@ -11,6 +11,7 @@ from numpy import ndarray
 from torch import Tensor
 from typing import Optional
 from torch.utils.data import Dataset
+from scipy.spatial import cKDTree
 
 # ============= Coordinate Class =============
 class Coordinate(BaseModel):
@@ -337,6 +338,8 @@ def get_nearest_nucleotides(
     return [nucleotides[i] for i in nearest[0:N]]
 
 
+
+
 # ============= Calculate Distance Matrix =============
 def calculate_distance_matrix(nucleotides: list[Nucleotide]) -> ndarray:
     matrix = []
@@ -351,6 +354,20 @@ def calculate_distance_matrix(nucleotides: list[Nucleotide]) -> ndarray:
             distances.append(distance)
         matrix.append(distances)
     return np.array(matrix)
+
+# ============ Get Nucleotide Coordinates =============
+def get_nucleotide_coordinates(nucleotides: list[Nucleotide]) -> np.ndarray:
+    """Extract coordinates as an array of shape (n, 3)."""
+    return np.array([[nt.coordinate.x, nt.coordinate.y, nt.coordinate.z] for nt in nucleotides])
+
+def get_nearest_nucleotides_kdtree(nucleotides: list[Nucleotide], k: int) -> list[list[Nucleotide]]:
+    coords = get_nucleotide_coordinates(nucleotides)
+    tree = cKDTree(coords)
+    # Query returns the k nearest neighbors for each point.
+    distances, indices = tree.query(coords, k=k)
+    # Here, we assume you want to include the nucleotide itself (distance 0) as in your original code.
+    nearest_nucleotides = [[nucleotides[i] for i in ind] for ind in indices]
+    return nearest_nucleotides
 
 
 # ============= Contract Nucleotides =============
