@@ -96,7 +96,7 @@ if __name__ == "__main__":
     os.chdir(os.path.dirname(os.path.abspath(__file__)))
     # 1. Generate Data
     start_time = time.time()
-    dataset = generate_data(n_sequences=50)
+    dataset = generate_data(n_sequences=100)
     dataset.summarise()
     print("Data generated successfully")
     time_taken = time.time() - start_time
