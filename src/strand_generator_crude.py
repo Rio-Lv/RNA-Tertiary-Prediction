@@ -51,7 +51,10 @@ def displace_nucleotide(
         orbital_pull(nucleotide, neighbor, distance_matrix, k=k)
 
 
-def crude_simulate(N: int, nucleotides: list[Nucleotide], k=1, steps=100):
+def crude_simulate(N: int, nucleotides: list[Nucleotide], k=1, steps=50):
+    print(" Number of Nucleotides: ", len(nucleotides))
+    print(" Number of Steps: ", steps)
+    print(" Number of Neighbors: ", N)
     for i in range(steps):
         print(f"Step: {i} / {steps}")
         distance_matrix = calculate_distance_matrix(nucleotides)

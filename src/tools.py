@@ -93,6 +93,24 @@ class Sequence(BaseModel):
 # ============= Evaluator Dataset Class =============
 class EvaluatorDataset(Dataset):
     def __init__(self, fake_clusters: list[Tensor], real_clusters: list[Tensor]):
+        
+        is_fake = []
+        clusters = []
+        clusters_removed = 0
+        
+        for i in range(len(fake_clusters)):
+            # check both do not contain NaN values
+            if not np.isnan(fake_clusters[i]).any() and not np.isnan(real_clusters[i]).any():
+                clusters.append(fake_clusters[i])
+                is_fake.append(0)
+                clusters.append(real_clusters[i])
+                is_fake.append(1)
+            else:
+                clusters_removed += 1
+        self.clusters = clusters
+        self.is_fake = is_fake
+        self.clusters_removed = clusters_removed
+        
         assert fake_clusters[0].shape == (5, 7), f"Fake Cluster should be of shape (5, 7) not {fake_clusters[0].shape}"
         assert real_clusters[0].shape == (5, 7), f"Real Cluster should be of shape (5, 7) not {real_clusters[0].shape}"
         assert len(fake_clusters) == len(real_clusters), "Fake and Real Clusters should be the same length"
@@ -101,14 +119,29 @@ class EvaluatorDataset(Dataset):
         assert len(fake_clusters[0]) == 5, "Fake Cluster should have 5 nucleotides"
         assert len(real_clusters[0]) == 5, "Real Cluster should have 5 nucleotides"
         
-        self.is_fake = [0 for _ in range(len(fake_clusters))] + [1 for _ in range(len(real_clusters))]
-        self.clusters = fake_clusters + real_clusters
+        
 
     def __len__(self):
         return len(self.clusters)
 
     def __getitem__(self, idx):
         return self.clusters[idx], self.is_fake[idx]
+    
+    def summarise(self):
+        print("----- Evaluator Dataset Summary -----")
+        print(f"Number of samples: {len(self)}")
+        print(f"Number of clusters: {len(self.clusters)}")
+        print(f"Number of fake clusters: {self.is_fake.count(0)}")
+        print(f"Number of real clusters: {self.is_fake.count(1)}")
+        print(f"Shape of clusters: {self.clusters[0].shape}")
+        print(f"Clusters removed: {self.clusters_removed}")
+        # create preview table
+        # Create preview table by flattening each cluster to 35 values.
+        flattened_clusters = [cluster.flatten().tolist() for cluster in self.clusters[:5]]
+        preview_df = pd.DataFrame(flattened_clusters, columns=[f"val_{i}" for i in range(35)])
+        preview_df["is_fake"] = self.is_fake[:5]
+        print("Preview of first 5 clusters (flattened):")
+        print(preview_df)
 
 # ============= Grab Strand =============
 def grab_strand(pdb_id: str, labels: Labels) -> Strand:

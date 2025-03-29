@@ -1,26 +1,20 @@
 import os
-from pydantic import BaseModel, field_validator
 import torch
 from torch import Tensor
-from numpy import ndarray
 from tools import *
 from strand_generator_crude import crude_simulate as make_fake_nucleotides
-from torch.utils.data import Dataset
+from typing import Tuple
 # What best format for the Generator and the Discriminator?
 
-def generate_data()-> Dataset:
+# =================== Generate Data ===================
+def pdb_id_to_clusters(pdb_id:str, sequences:Sequences,labels:Labels )-> Tuple[list[Nucleotide], list[Nucleotide]]:
     # 1. Use Sequences to Generate Fake Nucleotides
-    sequences_path = "data/train_sequences.csv"
-    sequences = Sequences(df=pd.read_csv(sequences_path))
-    sequence = grab_random_sequence(sequences)
-
+    sequence = grab_sequence(pdb_id, sequences)
+    assert len(sequence.sequence) > 5, "Sequence should be longer than 5"
     fake_nucleotides = sequence_to_nucleotide_line(sequence)
     fake_nucleotides = make_fake_nucleotides(5, fake_nucleotides, k=2, steps=100)
 
     # 2. Use Labels to Generate Real Nucleotides
-    labels_path = "data/train_labels.csv"
-    labels = Labels(df=pd.read_csv(labels_path))
-    pdb_id = sequence.target_id
     strand = grab_strand(pdb_id, labels)
     real_nucleotides = strand_to_nucleotides(strand)
     
@@ -54,11 +48,35 @@ def generate_data()-> Dataset:
         tensor = Tensor(tensor_list)
         assert tensor.shape == (5, 7), f"Tensor should be of shape (5, 7) not {tensor.shape}"
         real_clusters.append(tensor)
-    # 5. Create Dataset
-    dataset = EvaluatorDataset(fake_clusters, real_clusters)
+    # 5. return clusters
+    return fake_clusters, real_clusters
+    
+def generate_data(n_sequences:int = 5) -> EvaluatorDataset:
+    sequences_path = "data/train_sequences.csv"
+    sequences = Sequences(df=pd.read_csv(sequences_path))
+    labels_path = "data/train_labels.csv"
+    labels = Labels(df=pd.read_csv(labels_path))
+    pdb_ids = {}
+    real_clusters_list = []
+    fake_clusters_list = []
+    for i in range(n_sequences):
+        sequence = grab_random_sequence(sequences)
+        max_attempts = 10
+        attempts = 0
+        while len(sequence.sequence) < 5 and attempts < max_attempts:
+            sequence = grab_random_sequence(sequences)
+            attempts += 1
+        if attempts == max_attempts:
+            print(f"Could not find a sequence longer than 5 after {max_attempts} attempts")
+            continue
+        pdb_ids[sequence.target_id] = sequence
+    for pdb_id in pdb_ids.keys():
+        real_clusters, fake_clusters = pdb_id_to_clusters(pdb_id, sequences, labels)
+        real_clusters_list.extend(real_clusters)
+        fake_clusters_list.extend(fake_clusters)
+    # 6. Create Dataset
+    dataset = EvaluatorDataset(real_clusters_list, fake_clusters_list)
     return dataset
-    
-    
         
     
 # ========== Test ==========
@@ -66,23 +84,11 @@ if __name__ == "__main__":
     # set dir to file location
     os.chdir(os.path.dirname(os.path.abspath(__file__)))
     # 1. Generate Data
-    dataset = generate_data()
+    dataset = generate_data(n_sequences=20)
+    dataset.summarise()
     print("Data generated successfully")
-    # 2. Check Data
-    for i in range(5):
-        print("Fake Cluster:", dataset[i][0])
-        print("Is Fake:", dataset[i][1])
-        print("Real Cluster:", dataset[-i][0])
-        print("Is Fake:", dataset[i + 5][1])
-    # 3. Check Length
-    print("Length of Dataset:", len(dataset))
-    # 4. Check Shape
-    print("Shape of Fake Cluster:", dataset[0][0].shape)
-    print("Shape of Real Cluster:", dataset[-1][0].shape)
-    # 5. Check Data Types
-    print("Data Type of Fake Cluster:", dataset[0][0].dtype)
-    print("Data Type of Real Cluster:", dataset[-1][0].dtype)
-    # 6. Save Data
+    
+    # 2. Save Data
     torch.save(dataset, "data/evaluator_dataset.pt")
-    # 7. Load Data
+    # 3. Load Data
     # dataset = torch.load("data/evaluator_dataset.pt")
