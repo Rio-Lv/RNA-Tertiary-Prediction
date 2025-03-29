@@ -6,7 +6,6 @@ from strand_generator_crude import crude_simulate as make_fake_nucleotides
 from typing import Tuple
 import random
 import time
-from dask import delayed, compute
 # What best format for the Generator and the Discriminator?
 
 # =================== Generate Data ===================
@@ -91,73 +90,18 @@ def generate_data(n_sequences:int = 5) -> EvaluatorDataset:
     print(f"Data generated in {time.time() - start_time:.2f} seconds")
     return dataset
         
-    
-# =================== Dask-based Data Generation ===================
-def generate_data_dask(n_sequences: int = 5) -> EvaluatorDataset:
-    start_time = time.time()
-    
-    # Load sequences and labels from CSV
-    sequences_path = "data/train_sequences.csv"
-    sequences = Sequences(df=pd.read_csv(sequences_path))
-    pdb_ids = list(sequences.df["target_id"].unique().tolist())
-    # random.shuffle(pdb_ids)
-    
-    labels_path = "data/train_labels.csv"
-    labels = Labels(df=pd.read_csv(labels_path))
-    
-    # Wrap pdb_id_to_clusters in a delayed function with error handling
-    @delayed
-    def safe_pdb_id_to_clusters(pdb_id: str, sequences: Sequences, labels: Labels):
-        try:
-            print(f"Generating data for {pdb_id}")
-            return pdb_id_to_clusters(pdb_id, sequences, labels)
-        except Exception as e:
-            print(f"Error generating data for {pdb_id}: {e}")
-            return None
-    
-    # Schedule tasks for each pdb_id
-    tasks = []
-    for idx, pdb_id in enumerate(pdb_ids[:n_sequences], start=1):
-        print(f"Scheduling data generation for {pdb_id} -------------------------------({idx}/{n_sequences})")
-        tasks.append(safe_pdb_id_to_clusters(pdb_id, sequences, labels))
-    
-    # Compute tasks in parallel using Dask's thread scheduler
-    results = compute(*tasks, scheduler='threads')
-    
-    real_clusters_list = []
-    fake_clusters_list = []
-    
-    # Aggregate the results (skip any tasks that returned None due to errors)
-    for result in results:
-        if result is not None:
-            fake_clusters, real_clusters = result
-            fake_clusters_list.extend(fake_clusters)
-            real_clusters_list.extend(real_clusters)
-    
-    dataset = EvaluatorDataset(real_clusters_list, fake_clusters_list)
-    print(f"Data generated in {time.time() - start_time:.2f} seconds")
-    return dataset
-    
 # ========== Test ==========
 if __name__ == "__main__":
     # set dir to file location
     os.chdir(os.path.dirname(os.path.abspath(__file__)))
     # 1. Generate Data
     start_time = time.time()
-    dataset = generate_data(n_sequences=100)
+    dataset = generate_data(n_sequences=50)
     dataset.summarise()
     print("Data generated successfully")
     time_taken = time.time() - start_time
     
-    start_time = time.time()
-    dataset = generate_data_dask(n_sequences=100)
-    dataset.summarise()
-    print("Data generated successfully")
-    time_taken_dask = time.time() - start_time
-    print(f"Dask Data Generation Time: {time_taken_dask:.2f} seconds")
-    print(f"Sequential Data Generation Time: {time_taken:.2f} seconds")
-    print(f"Dask is {time_taken / time_taken_dask:.2f} times faster than sequential")
-    
+    print(f"Data generation took {time_taken:.2f} seconds")
     
     # 2. Save Data
     # torch.save(dataset, "data/evaluator_dataset.pt")
