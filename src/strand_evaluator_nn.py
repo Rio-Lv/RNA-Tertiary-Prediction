@@ -14,7 +14,6 @@ class EvaluatorModel(nn.Module):
         # Flatten the input (5, 8) into a vector of size 35
         self.flatten = nn.Flatten()
         # Define a simple fully connected network
-        input_length = 5 * 8 
         self.stack = nn.Sequential(
             nn.Linear(40, 32),
             nn.ReLU(),
@@ -25,7 +24,10 @@ class EvaluatorModel(nn.Module):
         )
 
     def forward(self, x):
-        x = self.flatten(x)
+        # If input is (5,8), add a batch dimension to make it (1,5,8)
+        if x.dim() == 2:
+            x = x.unsqueeze(0)
+        x = self.flatten(x)  # Now each sample becomes a vector of size 40
         x = self.stack(x)
         return x
 
