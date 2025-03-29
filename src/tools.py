@@ -59,6 +59,22 @@ class Strand(BaseModel):
     x_1: list[float] = [12.3, 15.6]
     y_1: list[float] = [7.8, 9.1]
     z_1: list[float] = [3.4, 4.5]
+    
+    def summarise(self):
+        # return readable table
+        print("----- Strand Summary -----")
+        df = pd.DataFrame(
+            {
+                "ID": self.ID,
+                "resname": self.resname,
+                "resid": self.resid,
+                "x_1": self.x_1,
+                "y_1": self.y_1,
+                "z_1": self.z_1,
+            }
+        )
+        print(df)
+        
 
 
 # ============= Sequences Class =============
@@ -145,7 +161,8 @@ class EvaluatorDataset(Dataset):
 # ============= Grab Strand =============
 def grab_strand(pdb_id: str, labels: Labels) -> Strand:
     filtered_df = labels.df[labels.df["ID"].str.contains(pdb_id)]
-
+      # Drop rows where any of the coordinate fields are missing
+    filtered_df = filtered_df.dropna(subset=["x_1", "y_1", "z_1"])
     return Strand(
         **{
             field: filtered_df[field].tolist()
@@ -247,23 +264,16 @@ def rotate_nucleotides(
     Rotate nucleotides around their centroid using extrinsic rotations in x, y, z order.
     Angles are expected in degrees.
     """
-    print(nucleotides[0].coordinate.x, nucleotides[0].coordinate.y, nucleotides[0].coordinate.z)
-    print("rotation angles (degrees): ", rx, ry, rz)
     # Convert degrees to radians
     rx = math.radians(rx)
     ry = math.radians(ry)
     rz = math.radians(rz)
     
-    
-    print("rotation angles (degrees): ", rx, ry, rz)
-    print("rotation angles (radians): ", math.radians(rx), math.radians(ry), math.radians(rz))
 
     # Calculate centroid
     cx = sum(nt.coordinate.x for nt in nucleotides) / len(nucleotides)
     cy = sum(nt.coordinate.y for nt in nucleotides) / len(nucleotides)
     cz = sum(nt.coordinate.z for nt in nucleotides) / len(nucleotides)
-    
-    print("Centroid: ", cx, cy, cz)
 
     # Precompute trigonometric values
     cos_x, sin_x = math.cos(rx), math.sin(rx)
@@ -299,8 +309,6 @@ def rotate_nucleotides(
         nt.coordinate.y = new_y + cy
         nt.coordinate.z = new_z + cz
     # Return rotated nucleotides
-    print("Rotated Nucleotides")
-    # print(nucleotides)
     return nucleotides
 
 
@@ -428,15 +436,16 @@ if __name__ == "__main__":
     sequence = grab_random_sequence(sequences)
     pdb_id = sequence.target_id
     # # 3.1 optionally, grab a specific strand
-    # pdb_id = "4V6W_A5" # Big One 2000+ Not Working
+    pdb_id = "4V6W_A5" # Big One 2000+ Working now after df drop na! 
     # pdb_id = "4V4N_A1" # Big One 2000+ Working
-    pdb_id = "6WB1_C" # had non ACGU
+    # pdb_id = "6WB1_C" # had non ACGU
 
     strand = grab_strand(pdb_id, labels)
-
+    strand.summarise()
+   
     # 4. convert strand to nucleotides
     nucleotides = strand_to_nucleotides(strand)
-
+    print("step 4: nucleotides")
     # 5. rotate nucleotides
     nucleotides_rotated = rotate_nucleotides(nucleotides, rx=0, ry=0, rz=90)
 
