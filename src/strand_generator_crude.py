@@ -73,10 +73,11 @@ if __name__ == "__main__":
     labels = Labels(df=pd.read_csv(labels_path))
     sequences = Sequences(df=pd.read_csv(sequences_path))
     
-    sequence = grab_random_sequence(sequences)
+    # sequence = grab_random_sequence(sequences)
+    sequence = grab_sequence("9G7C_A", sequences)
     pdb_id = sequence.target_id
     nucleotides = sequence_to_nucleotide_line(sequence)
-    nucleotides = crude_simulate(5, nucleotides, k=2, steps=100)
+    nucleotides = crude_simulate(5, nucleotides, k=2, steps=2000)
     strand = nucleotides_to_strand(nucleotides)
     reference_strand = grab_strand(pdb_id, labels)
     generated_pdb = strand_to_pdb(strand)

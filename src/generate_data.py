@@ -1,22 +1,12 @@
 import os
 from pydantic import BaseModel, field_validator
+import torch
 from torch import Tensor
 from numpy import ndarray
 from tools import *
 from strand_generator_crude import crude_simulate as make_fake_nucleotides
 from torch.utils.data import Dataset
 # What best format for the Generator and the Discriminator?
-
-class EvaluatorDataset(Dataset):
-    def __init__(self, fake_clusters: list[Tensor], real_clusters: list[Tensor]):
-        self.fake_clusters = fake_clusters
-        self.real_clusters = real_clusters
-
-    def __len__(self):
-        return len(self.fake_clusters)
-
-    def __getitem__(self, idx):
-        return self.fake_clusters[idx], self.real_clusters[idx]
 
 def generate_data()-> Dataset:
     # 1. Use Sequences to Generate Fake Nucleotides
@@ -80,10 +70,19 @@ if __name__ == "__main__":
     print("Data generated successfully")
     # 2. Check Data
     for i in range(5):
-        fake, real = dataset[i]
-        print(f"Fake Cluster {i}: {fake}")
-        print(f"Real Cluster {i}: {real}")
-    # 3. Check Shapes
-    print("Fake Cluster Shape:", fake.shape)
-    print("Real Cluster Shape:", real.shape)
-    
+        print("Fake Cluster:", dataset[i][0])
+        print("Is Fake:", dataset[i][1])
+        print("Real Cluster:", dataset[-i][0])
+        print("Is Fake:", dataset[i + 5][1])
+    # 3. Check Length
+    print("Length of Dataset:", len(dataset))
+    # 4. Check Shape
+    print("Shape of Fake Cluster:", dataset[0][0].shape)
+    print("Shape of Real Cluster:", dataset[-1][0].shape)
+    # 5. Check Data Types
+    print("Data Type of Fake Cluster:", dataset[0][0].dtype)
+    print("Data Type of Real Cluster:", dataset[-1][0].dtype)
+    # 6. Save Data
+    torch.save(dataset, "data/evaluator_dataset.pt")
+    # 7. Load Data
+    # dataset = torch.load("data/evaluator_dataset.pt")

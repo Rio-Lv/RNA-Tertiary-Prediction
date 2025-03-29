@@ -10,6 +10,7 @@ import numpy as np
 from numpy import ndarray
 from torch import Tensor
 from typing import Optional
+from torch.utils.data import Dataset
 
 # ============= Coordinate Class =============
 class Coordinate(BaseModel):
@@ -35,10 +36,6 @@ class Nucleotide(BaseModel):
                 1 if self.type == "G" else 0,
                 1 if self.type == "U" else 0,
             ]
-        
-        
-        
-
 
 # ============= Labels Class =============
 class Labels(BaseModel):
@@ -92,6 +89,26 @@ class Sequence(BaseModel):
     description: str = "description1"
     all_sequences: str = ">1SCL_1|Chain A|RN..."
 
+
+# ============= Evaluator Dataset Class =============
+class EvaluatorDataset(Dataset):
+    def __init__(self, fake_clusters: list[Tensor], real_clusters: list[Tensor]):
+        assert fake_clusters[0].shape == (5, 7), f"Fake Cluster should be of shape (5, 7) not {fake_clusters[0].shape}"
+        assert real_clusters[0].shape == (5, 7), f"Real Cluster should be of shape (5, 7) not {real_clusters[0].shape}"
+        assert len(fake_clusters) == len(real_clusters), "Fake and Real Clusters should be the same length"
+        assert len(fake_clusters) > 0, "Fake Clusters should not be empty"
+        assert len(real_clusters) > 0, "Real Clusters should not be empty"
+        assert len(fake_clusters[0]) == 5, "Fake Cluster should have 5 nucleotides"
+        assert len(real_clusters[0]) == 5, "Real Cluster should have 5 nucleotides"
+        
+        self.is_fake = [0 for _ in range(len(fake_clusters))] + [1 for _ in range(len(real_clusters))]
+        self.clusters = fake_clusters + real_clusters
+
+    def __len__(self):
+        return len(self.clusters)
+
+    def __getitem__(self, idx):
+        return self.clusters[idx], self.is_fake[idx]
 
 # ============= Grab Strand =============
 def grab_strand(pdb_id: str, labels: Labels) -> Strand:
