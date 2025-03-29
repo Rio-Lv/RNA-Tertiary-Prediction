@@ -5,12 +5,14 @@ from tools import *
 from strand_generator_crude import crude_simulate as make_fake_nucleotides
 from typing import Tuple
 import random
+import time
+from dask import delayed, compute
 # What best format for the Generator and the Discriminator?
 
 # =================== Generate Data ===================
 def pdb_id_to_clusters(pdb_id:str, sequences:Sequences,labels:Labels )-> Tuple[list[Nucleotide], list[Nucleotide]]:
 
-    max_nucleotides = 300
+    max_nucleotides = 100
     # 1. Use Labels to Generate Real Nucleotides
     strand = grab_strand(pdb_id, labels)
     real_nucleotides = strand_to_nucleotides(strand)[:max_nucleotides]
@@ -20,14 +22,14 @@ def pdb_id_to_clusters(pdb_id:str, sequences:Sequences,labels:Labels )-> Tuple[l
     sequence = grab_sequence(pdb_id, sequences)
     assert len(sequence.sequence) > 5, "Sequence should be longer than 5"
     fake_nucleotides = sequence_to_nucleotide_line(sequence)[:max_nucleotides]
-    fake_nucleotides = make_fake_nucleotides(5, fake_nucleotides, k=2, steps=100)
+    fake_nucleotides = make_fake_nucleotides(5, fake_nucleotides, k=1, steps=50)
     fake_nucleotides = [nt for nt in fake_nucleotides if nt.index in real_indices]
     
     assert len(fake_nucleotides) == len(real_nucleotides), "Fake and Real Nucleotides should be the same length"
     
     # 3. Generate Distance Matrix
-    distance_matrix_real = calculate_distance_matrix(real_nucleotides)
     distance_matrix_fake = calculate_distance_matrix(fake_nucleotides)
+    distance_matrix_real = calculate_distance_matrix(real_nucleotides)
     # 4. Generate Clusters
     
     fake_clusters = []
@@ -58,12 +60,13 @@ def pdb_id_to_clusters(pdb_id:str, sequences:Sequences,labels:Labels )-> Tuple[l
     return fake_clusters, real_clusters
     
 def generate_data(n_sequences:int = 5) -> EvaluatorDataset:
+    start_time = time.time()
     
     sequences_path = "data/train_sequences.csv"
     sequences = Sequences(df=pd.read_csv(sequences_path))
     
     pdb_ids = list(sequences.df["target_id"].unique().tolist())
-    random.shuffle(pdb_ids)
+    # random.shuffle(pdb_ids)
  
     labels_path = "data/train_labels.csv"
     labels = Labels(df=pd.read_csv(labels_path))
@@ -73,31 +76,90 @@ def generate_data(n_sequences:int = 5) -> EvaluatorDataset:
     
     curr_index = 1
     for pdb_id in pdb_ids[:n_sequences]:
-        print(f"Generating data for {pdb_id} ({curr_index}/{n_sequences}) ")
-        if len(pdb_id) > 5:
+        print(f"Generating data for {pdb_id} -------------------------------({curr_index}/{n_sequences})")
+        curr_index += 1
+        try:
             real_clusters, fake_clusters = pdb_id_to_clusters(pdb_id, sequences, labels)
             real_clusters_list.extend(real_clusters)
             fake_clusters_list.extend(fake_clusters)
-        else:
-            print(f"Skipping {pdb_id} as it is too short")
+        except Exception as e:
+            print(f"Error generating data for {pdb_id}: {e}")
             continue
-        curr_index += 1
         
     # 6. Create Dataset
     dataset = EvaluatorDataset(real_clusters_list, fake_clusters_list)
+    print(f"Data generated in {time.time() - start_time:.2f} seconds")
     return dataset
         
+    
+# =================== Dask-based Data Generation ===================
+def generate_data_dask(n_sequences: int = 5) -> EvaluatorDataset:
+    start_time = time.time()
+    
+    # Load sequences and labels from CSV
+    sequences_path = "data/train_sequences.csv"
+    sequences = Sequences(df=pd.read_csv(sequences_path))
+    pdb_ids = list(sequences.df["target_id"].unique().tolist())
+    # random.shuffle(pdb_ids)
+    
+    labels_path = "data/train_labels.csv"
+    labels = Labels(df=pd.read_csv(labels_path))
+    
+    # Wrap pdb_id_to_clusters in a delayed function with error handling
+    @delayed
+    def safe_pdb_id_to_clusters(pdb_id: str, sequences: Sequences, labels: Labels):
+        try:
+            print(f"Generating data for {pdb_id}")
+            return pdb_id_to_clusters(pdb_id, sequences, labels)
+        except Exception as e:
+            print(f"Error generating data for {pdb_id}: {e}")
+            return None
+    
+    # Schedule tasks for each pdb_id
+    tasks = []
+    for idx, pdb_id in enumerate(pdb_ids[:n_sequences], start=1):
+        print(f"Scheduling data generation for {pdb_id} -------------------------------({idx}/{n_sequences})")
+        tasks.append(safe_pdb_id_to_clusters(pdb_id, sequences, labels))
+    
+    # Compute tasks in parallel using Dask's thread scheduler
+    results = compute(*tasks, scheduler='threads')
+    
+    real_clusters_list = []
+    fake_clusters_list = []
+    
+    # Aggregate the results (skip any tasks that returned None due to errors)
+    for result in results:
+        if result is not None:
+            fake_clusters, real_clusters = result
+            fake_clusters_list.extend(fake_clusters)
+            real_clusters_list.extend(real_clusters)
+    
+    dataset = EvaluatorDataset(real_clusters_list, fake_clusters_list)
+    print(f"Data generated in {time.time() - start_time:.2f} seconds")
+    return dataset
     
 # ========== Test ==========
 if __name__ == "__main__":
     # set dir to file location
     os.chdir(os.path.dirname(os.path.abspath(__file__)))
     # 1. Generate Data
-    dataset = generate_data(n_sequences=200)
+    start_time = time.time()
+    dataset = generate_data(n_sequences=100)
     dataset.summarise()
     print("Data generated successfully")
+    time_taken = time.time() - start_time
+    
+    start_time = time.time()
+    dataset = generate_data_dask(n_sequences=100)
+    dataset.summarise()
+    print("Data generated successfully")
+    time_taken_dask = time.time() - start_time
+    print(f"Dask Data Generation Time: {time_taken_dask:.2f} seconds")
+    print(f"Sequential Data Generation Time: {time_taken:.2f} seconds")
+    print(f"Dask is {time_taken / time_taken_dask:.2f} times faster than sequential")
+    
     
     # 2. Save Data
-    torch.save(dataset, "data/evaluator_dataset.pt")
+    # torch.save(dataset, "data/evaluator_dataset.pt")
     # 3. Load Data
     # dataset = torch.load("data/evaluator_dataset.pt")

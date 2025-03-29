@@ -77,7 +77,6 @@ class Strand(BaseModel):
         print(df)
         
 
-
 # ============= Sequences Class =============
 class Sequences(BaseModel):
 
@@ -154,7 +153,10 @@ class EvaluatorDataset(Dataset):
         # create preview table
         # Create preview table by flattening each cluster to 35 values.
         flattened_clusters = [cluster.flatten().tolist() for cluster in self.clusters[:5]]
-        preview_df = pd.DataFrame(flattened_clusters, columns=[f"val_{i}" for i in range(35)])
+        shape = self.clusters[0].shape
+        flat_length = shape[0] * shape[1]
+        
+        preview_df = pd.DataFrame(flattened_clusters, columns=[f"val_{i}" for i in range(flat_length)])
         preview_df["is_fake"] = self.is_fake[:5]
         print("Preview of first 5 clusters (flattened):")
         print(preview_df)
@@ -176,6 +178,8 @@ def grab_strand(pdb_id: str, labels: Labels) -> Strand:
 # ============= Grab Sequence by ID =============
 def grab_sequence(pdb_id: str, sequences: Sequences) -> Sequence:
     filtered_df = sequences.df[sequences.df["target_id"] == pdb_id]
+    # drop na values
+    filtered_df = filtered_df.dropna(subset=["sequence"])
     return Sequence(
         **{
             field: filtered_df[field].tolist()[0]
@@ -365,7 +369,9 @@ def contract_nucleotides(nucleotides: list[Nucleotide]):
             + (nt1.coordinate.y - nt2.coordinate.y) ** 2
             + (nt1.coordinate.z - nt2.coordinate.z) ** 2
         ) ** 0.5
-        d = distance - 6.5
+        d = max(distance - 6.5, 0.1)
+        
+        
         ux = (nt2.coordinate.x - nt1.coordinate.x) / distance
         uy = (nt2.coordinate.y - nt1.coordinate.y) / distance
         uz = (nt2.coordinate.z - nt1.coordinate.z) / distance

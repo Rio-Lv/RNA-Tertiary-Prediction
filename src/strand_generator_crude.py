@@ -52,7 +52,7 @@ def displace_nucleotide(
 
 
 def crude_simulate(N: int, nucleotides: list[Nucleotide], k=1, steps=50):
-    print(" Number of Nucleotides: ", len(nucleotides))
+    print(" Number of Nucleotides: ", len(nucleotides), " Index: ", nucleotides[0].index)
     distance_matrix = calculate_distance_matrix(nucleotides)
     for i in range(steps):
         if i % 20 == 0:
@@ -64,6 +64,7 @@ def crude_simulate(N: int, nucleotides: list[Nucleotide], k=1, steps=50):
             neighbors = get_nearest_nucleotides(N, nt.index, nucleotides, distance_matrix)
             displace_nucleotide(nt, neighbors, distance_matrix, k=k)
         contract_nucleotides(nucleotides)
+    print("Simulation Completed for Nucleotides: ", len(nucleotides), " Index: ", nucleotides[0].index)
     return nucleotides
 
 if __name__ == "__main__":

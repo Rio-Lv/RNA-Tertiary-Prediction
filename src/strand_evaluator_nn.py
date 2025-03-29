@@ -14,6 +14,7 @@ class EvaluatorModel(nn.Module):
         self.stack = nn.Sequential(
             nn.Linear(40, 32),
             nn.ReLU(),
+            nn.Dropout(0.5),
             nn.Linear(32, 16),
             nn.ReLU(),
             nn.Linear(16, 1),  # Output a single value for binary classification
