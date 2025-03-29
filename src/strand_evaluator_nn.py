@@ -43,7 +43,11 @@ if __name__ == "__main__":
     print(f"Train samples: {len(train_dataset)}, Test samples: {len(test_dataset)}")
 
     # 2. Initialize Model
+ 
     model = EvaluatorModel()
+    ## load the model (optional)
+    model.load_state_dict(torch.load("models/evaluator_model.pth"))
+   
     criterion = nn.BCEWithLogitsLoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
     print("2. Model initialized successfully")
@@ -92,9 +96,9 @@ if __name__ == "__main__":
         accuracy = correct / total
 
         # If loss is below threshold, show the metrics and break out of training
-        if epoch_loss < 0.00001:
+        if epoch_loss < 0.0001:
             print(f"Epoch {epoch}/{num_epochs}, Loss: {epoch_loss:.5f}, Accuracy: {accuracy:.5f}")
-            print("--- Loss is below threshold of 0.00001, stopping training. ---")
+            print("--- Loss is below threshold of 0.0001, stopping training. ---")
             break
 
         if epoch % 10 == 0 or epoch == 0:

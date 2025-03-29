@@ -1,4 +1,5 @@
-from src.tools import *
+import os
+from tools import *
 from pydantic import BaseModel
 
 import torch
@@ -104,6 +105,8 @@ class Generator:
 
 # =================== Model Validation ===================
 if __name__ == "__main__":
+    # Set directory to file location
+    os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
     print("============ Strand Generator Neural Network ===========")
 
