@@ -34,6 +34,7 @@ class Nucleotide(BaseModel):
                 1 if self.type == "C" else 0,
                 1 if self.type == "G" else 0,
                 1 if self.type == "U" else 0,
+                1 if self.type == "-" else 0,
             ]
 
 # ============= Labels Class =============
@@ -161,7 +162,7 @@ class EvaluatorDataset(Dataset):
 # ============= Grab Strand =============
 def grab_strand(pdb_id: str, labels: Labels) -> Strand:
     filtered_df = labels.df[labels.df["ID"].str.contains(pdb_id)]
-      # Drop rows where any of the coordinate fields are missing
+
     filtered_df = filtered_df.dropna(subset=["x_1", "y_1", "z_1"])
     return Strand(
         **{
@@ -294,6 +295,16 @@ def rotate_nucleotides(
 
     # Apply combined rotation to each nucleotide
     for nt in nucleotides:
+        # check if coordinates are valid
+        if (
+            nt.coordinate.x < -1e10
+            or nt.coordinate.y < -1e10
+            or nt.coordinate.z < -1e10
+            or math.isnan(nt.coordinate.x)
+            or math.isnan(nt.coordinate.y)
+            or math.isnan(nt.coordinate.z)
+        ):
+            continue
         # Translate to centroid origin
         x = nt.coordinate.x - cx
         y = nt.coordinate.y - cy
