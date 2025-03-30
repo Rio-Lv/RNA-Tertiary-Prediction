@@ -108,7 +108,7 @@ class Sequence(BaseModel):
 
 # ============= Evaluator Dataset Class =============
 class EvaluatorDataset(Dataset):
-    def __init__(self, fake_clusters: list[Tensor], real_clusters: list[Tensor]):
+    def __init__(self, sequence_strings:list[str] , fake_clusters: list[Tensor], real_clusters: list[Tensor]):
         
         is_fake = []
         clusters = []
