@@ -1,0 +1,118 @@
+from torch import Tensor
+from typing import Literal
+from torch import Tensor
+
+
+class Vector:
+    x: float
+    y: float
+    z: float
+
+    def __init__(self, x: float, y: float, z: float):
+        self.x = x
+        self.y = y
+        self.z = z
+
+    def __repr__(self):
+        return f"Vector({self.x}, {self.y}, {self.z})"
+
+
+class Nucleotide:
+    index: int
+    type: Literal["A", "C", "G", "U", "N"]
+    coordinate: Vector
+    array: list[float]
+
+    def __init__(self, index, type, coordinate):
+        self.index = index
+        self.type = type
+        self.coordinate = coordinate
+        self.array = self.get_array()
+        assert (
+            len(self.array) == 7
+        ), f"Nucleotide array must be of length 7. Got {len(self.array)}"
+
+    def __repr__(self):
+        return f"Nucleotide({self.index}, {self.type}, {self.coordinate})"
+
+    def get_coord_array(self):
+        return [self.coordinate.x, self.coordinate.y, self.coordinate.z]
+
+    def get_type_array(self):
+        if self.type == "A":
+            return [1, 0, 0, 0]
+        elif self.type == "C":
+            return [0, 1, 0, 0]
+        elif self.type == "G":
+            return [0, 0, 1, 0]
+        elif self.type == "U":
+            return [0, 0, 0, 1]
+        else:
+            return [0, 0, 0, 0]
+
+    def get_array(self):
+        tensor = [self.coordinate.x, self.coordinate.y, self.coordinate.z]
+        tensor += self.get_type_array()
+        return tensor
+
+
+class Cluster:
+    """
+    Coord Vectors should be relative to the first nucleotide in the cluster.
+    """
+
+    source_nucleotides: list[Nucleotide]
+    array: list[list[float]]
+    tensor: Tensor
+
+    def __init__(self, nucleotides: list[Nucleotide]):
+        assert len(nucleotides) == 5, "Cluster must contain exactly 5 nucleotides."
+        self.source_nucleotides = nucleotides
+        self.array = self.get_array()
+        self.tensor = self.get_tensor()
+        assert (
+            len(self.array) == 5
+        ), f"Cluster array must be of length 5. Got {len(self.array)}"
+        assert self.tensor.shape == (
+            5,
+            7,
+        ), f"Cluster tensor must be of shape (5, 7). Got {self.tensor.shape}"
+
+    def __repr__(self):
+        array_str = "\n".join("    " + str(row) for row in self.array)
+        return (
+            f"Cluster(\n"
+            f"    Number Of Nucleotides: {len(self.source_nucleotides)}\n"
+            f"{array_str}\n"
+            f"    Tensor: {self.tensor}\n"
+            f")"
+        )
+
+    def get_array(self):
+        base_nucleotide = self.source_nucleotides[0]
+        relative_nucleotides = []
+        for nucleotide in self.source_nucleotides:
+            relative_nucleotide = Nucleotide(
+                index=nucleotide.index,
+                type=nucleotide.type,
+                coordinate=Vector(
+                    x=nucleotide.coordinate.x - base_nucleotide.coordinate.x,
+                    y=nucleotide.coordinate.y - base_nucleotide.coordinate.y,
+                    z=nucleotide.coordinate.z - base_nucleotide.coordinate.z,
+                ),
+            )
+            relative_nucleotides.append(relative_nucleotide)
+        array = [nucleotide.get_array() for nucleotide in relative_nucleotides]
+        return array
+
+    def get_tensor(self):
+        return Tensor(self.array)
+
+
+if __name__ == "__main__":
+    test_vector = Vector(x=1.0, y=2.0, z=3.0)
+    print(test_vector)
+    test_nucleotide = Nucleotide(index=1, type="A", coordinate=test_vector)
+    print(test_nucleotide)
+    test_cluster = Cluster(nucleotides=[test_nucleotide for _ in range(5)])
+    print(test_cluster)
