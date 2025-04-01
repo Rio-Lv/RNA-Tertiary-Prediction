@@ -1,6 +1,7 @@
 from torch import Tensor
 from typing import Literal
 from torch import Tensor
+import random
 
 
 class Vector:
@@ -23,14 +24,16 @@ class Nucleotide:
     coordinate: Vector
     array: list[float]
 
-    def __init__(self, index, type, coordinate):
+    def __init__(
+        self, index: int, type: Literal["A", "C", "G", "U", "N"], coordinate: Vector
+    ):
         self.index = index
         self.type = type
         self.coordinate = coordinate
         self.array = self.get_array()
         assert (
             len(self.array) == 7
-        ), f"Nucleotide array must be of length 7. Got {len(self.array)}"
+        ), f"Nucleotide array must be of length 8. Got {len(self.array)}"
 
     def __repr__(self):
         return f"Nucleotide({self.index}, {self.type}, {self.coordinate})"
@@ -62,7 +65,7 @@ class Cluster:
     """
 
     source_nucleotides: list[Nucleotide]
-    array: list[list[float]]
+    array: list[list[float]] # [dx, dy, dz, a, c, g, u, connected_to_base]
     tensor: Tensor
 
     def __init__(self, nucleotides: list[Nucleotide]):
@@ -75,22 +78,52 @@ class Cluster:
         ), f"Cluster array must be of length 5. Got {len(self.array)}"
         assert self.tensor.shape == (
             5,
-            7,
+            8,
         ), f"Cluster tensor must be of shape (5, 7). Got {self.tensor.shape}"
 
     def __repr__(self):
-        array_str = "\n".join("    " + str(row) for row in self.array)
+        """ 
+        Cluster representation.
+        """
+
+        columns = ["dx", "dy", "dz", "A", "C", "G", "U", "CB"]
+        
+        # Build the header with the specified widths
+        header_parts = []
+        for i, col in enumerate(columns):
+            if i < 3:
+                header_parts.append(f"{col:>5}")
+            else:
+                header_parts.append(f"{col:>2}")
+        header = "    " + " ".join(header_parts)
+        
+        # Build the rows, formatting each value according to its column
+        rows = []
+        for row in self.array:
+            formatted_row_parts = []
+            for i, val in enumerate(row):
+                if i < 3:
+                    formatted_row_parts.append(f"{val:>5}")
+                else:
+                    formatted_row_parts.append(f"{val:>2}")
+            formatted_row = "    " + " ".join(formatted_row_parts)
+            rows.append(formatted_row)
+        array_str = "\n".join(rows)
+        
         return (
             f"Cluster(\n"
             f"    Number Of Nucleotides: {len(self.source_nucleotides)}\n"
+            f"{header}\n"
             f"{array_str}\n"
-            f"    Tensor: {self.tensor}\n"
             f")"
         )
 
     def get_array(self):
         base_nucleotide = self.source_nucleotides[0]
         relative_nucleotides = []
+        connected_to_base = []
+        base_index = base_nucleotide.index
+        
         for nucleotide in self.source_nucleotides:
             relative_nucleotide = Nucleotide(
                 index=nucleotide.index,
@@ -102,11 +135,33 @@ class Cluster:
                 ),
             )
             relative_nucleotides.append(relative_nucleotide)
+            
+            # Check if the nucleotide is connected to the base nucleotide
+            if abs(nucleotide.index - base_index) == 1:
+                connected_to_base.append(1)
+            else:
+                connected_to_base.append(0)
+                
         array = [nucleotide.get_array() for nucleotide in relative_nucleotides]
+        array = [row + [connected_to_base[i]] for i, row in enumerate(array)]
         return array
 
     def get_tensor(self):
         return Tensor(self.array)
+    
+    def update(self):
+        self.array = self.get_array()
+        self.tensor = self.get_tensor()
+
+    def move_base_nucleotide(self, dx: float, dy: float, dz: float):
+        """
+        Move the base nucleotide by a given delta.
+        """
+        self.source_nucleotides[0].coordinate.x += dx
+        self.source_nucleotides[0].coordinate.y += dy
+        self.source_nucleotides[0].coordinate.z += dz
+
+        self.update()
 
 
 if __name__ == "__main__":
@@ -114,5 +169,20 @@ if __name__ == "__main__":
     print(test_vector)
     test_nucleotide = Nucleotide(index=1, type="A", coordinate=test_vector)
     print(test_nucleotide)
-    test_cluster = Cluster(nucleotides=[test_nucleotide for _ in range(5)])
+    test_cluster = Cluster(
+        nucleotides=[
+            Nucleotide(
+                i,
+                random.choice(["A", "C", "G", "U"]),
+                Vector(
+                    x=i*1.0,
+                    y=i*2.0,
+                    z=i*3.0,
+                )
+            )
+            for i in range(5)
+        ]
+    )
+    print(test_cluster)
+    test_cluster.move_base_nucleotide(0.5, 1.5, 2.5)
     print(test_cluster)
