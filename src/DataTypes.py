@@ -24,17 +24,20 @@ class Nucleotide:
     type: Literal["A", "C", "G", "U", "N"]
     coordinate: Vector
     array: list[float]
+    neighbors: list["Nucleotide"]
 
     def __init__(
         self,
         index: int = 0,
         type: Literal["A", "C", "G", "U", "N"] = "N",
         coordinate: Vector = Vector(),
+        neighbors: list["Nucleotide"] = [],
     ):
         self.index = index
         self.type = type
         self.coordinate = coordinate
         self.array = self.get_array()
+        self.neighbors = neighbors
         assert (
             len(self.array) == 7
         ), f"Nucleotide array must be of length 8. Got {len(self.array)}"
@@ -167,6 +170,23 @@ class Cluster:
         self.source_nucleotides[0].coordinate.z += dz
         self.array = self.get_array()
         self.tensor = self.get_tensor()
+        
+class Sequence:
+    """
+    A sequence of nucleotides.
+    """
+
+    nucleotides: list[Nucleotide]
+    delaunays
+
+    def __init__(self, nucleotides: list[Nucleotide] = []):
+        self.nucleotides = nucleotides
+
+    def __repr__(self):
+        return f"Sequence({self.nucleotides})"
+
+    def get_tensor(self):
+        return Tensor([nucleotide.get_array() for nucleotide in self.nucleotides])
 
 
 if __name__ == "__main__":
