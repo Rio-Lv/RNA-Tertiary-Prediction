@@ -5,11 +5,11 @@ from tools import *
 from DataTypes import Nucleotide, Vector, Cluster
 
 
-class Generator(nn.Module):
+class FakeGenerator(nn.Module):
     def __init__(self):
         default_cluster = Cluster()
         input_length = default_cluster.tensor.shape[0] * default_cluster.tensor.shape[1]
-        output_length = input_length
+        output_length = 3
         super().__init__()
         # We define a network that expects a flattened vector of size 40.
         self.stack = nn.Sequential(
@@ -32,11 +32,29 @@ class Generator(nn.Module):
         # Pass through the network
         x = self.stack(x)
         print(x)
-        return x
+        dx = x[0]
+        dy = x[1]
+        dz = x[2]
+        
+        cluster.update(Vector(dx=dx, dy=dy, dz=dz))
+        return cluster
+    
+    def get_cluster(self, sequence: str = "ACGT"):
+        """
+        Generate a cluster based on the given sequence.
+        """
+        # Create a list of nucleotides based on the sequence
+        nucleotides = [
+            Nucleotide(index=i, type=nt, coordinate=Vector(x=i, y=i, z=i))
+            for i, nt in enumerate(sequence)
+        ]
+        # Create a cluster with the nucleotides
+        cluster = Cluster(nucleotides=nucleotides)
+        return cluster
 
 
 if __name__ == "__main__":
     # Example usage
     # Assuming you have a Cluster object
-    generator = Generator()
-    generator.forward()
+    fake_generator = FakeGenerator()
+    print(fake_generator)

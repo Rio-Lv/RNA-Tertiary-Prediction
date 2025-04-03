@@ -40,7 +40,7 @@ class Nucleotide:
         self.neighbors = neighbors
         assert (
             len(self.array) == 7
-        ), f"Nucleotide array must be of length 8. Got {len(self.array)}"
+        ), f"Nucleotide array must be of length 7. Got {len(self.array)}"
 
     def __repr__(self):
         return f"Nucleotide({self.index}, {self.type}, {self.coordinate})"
@@ -88,7 +88,7 @@ class Cluster:
         assert self.tensor.shape == (
             5,
             8,
-        ), f"Cluster tensor must be of shape (5, 7). Got {self.tensor.shape}"
+        ), f"Cluster tensor must be of shape (5, 8). Got {self.tensor.shape}"
 
     def __repr__(self):
         """
@@ -171,23 +171,6 @@ class Cluster:
         self.array = self.get_array()
         self.tensor = self.get_tensor()
         
-class Sequence:
-    """
-    A sequence of nucleotides.
-    """
-
-    nucleotides: list[Nucleotide]
-    delaunays
-
-    def __init__(self, nucleotides: list[Nucleotide] = []):
-        self.nucleotides = nucleotides
-
-    def __repr__(self):
-        return f"Sequence({self.nucleotides})"
-
-    def get_tensor(self):
-        return Tensor([nucleotide.get_array() for nucleotide in self.nucleotides])
-
 
 if __name__ == "__main__":
     test_vector = Vector(x=1.0, y=2.0, z=3.0)
