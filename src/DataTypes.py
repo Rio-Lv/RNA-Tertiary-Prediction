@@ -94,38 +94,54 @@ class Cluster:
         """
         Cluster representation.
         """
-
         columns = ["dx", "dy", "dz", "A", "C", "G", "U", "CB"]
 
-        # Build the header with the specified widths
+        def format_val(val, width):
+            # Convert from np.float64 to float if necessary 
+            if isinstance(val, Tensor):
+                val = val.item()
+            # For floats, try fixed-point with 2 decimals first.
+            if isinstance(val, float):
+                s = f"{val:{width}.2f}"
+                if len(s) <= width:
+                    return s
+                # If the fixed-point format is too long, try scientific notation with 1 decimal.
+                s = f"{val:{width}.1e}"
+                if len(s) <= width:
+                    return s
+                # Fallback: truncate to the specified width.
+                return s[:width]
+            else:
+                # For integers (or other types), format as an integer.
+                s = f"{val:{width}d}"
+                if len(s) <= width:
+                    return s
+                return s[:width]
+
+        # Build the header with specific widths.
         header_parts = []
         for i, col in enumerate(columns):
             if i < 3:
                 header_parts.append(f"{col:>5}")
             else:
-                header_parts.append(f"{col:>2}")
+                header_parts.append(f"{col:>3}")
         header = "    " + " ".join(header_parts)
 
-        # Build the rows, formatting each value according to its column
-        rows = []
+        # Build the rows, applying the correct width for each column.
+        rows = [header]
         for row in self.array:
             formatted_row_parts = []
             for i, val in enumerate(row):
-                if i < 3:
-                    formatted_row_parts.append(f"{val:>5}")
-                else:
-                    formatted_row_parts.append(f"{val:>2}")
+                width = 5 if i < 3 else 3
+                formatted_row_parts.append(format_val(val, width))
             formatted_row = "    " + " ".join(formatted_row_parts)
             rows.append(formatted_row)
+        
+        rows.append("    " + "-" *47)
+        # add line break
+        
         array_str = "\n".join(rows)
-
-        return (
-            f"Cluster(\n"
-            f"    Number Of Nucleotides: {len(self.source_nucleotides)}\n"
-            f"{header}\n"
-            f"{array_str}\n"
-            f")"
-        )
+        return array_str
 
     def get_array(self):
         base_nucleotide = self.source_nucleotides[0]
@@ -170,7 +186,7 @@ class Cluster:
         self.source_nucleotides[0].coordinate.z += dz
         self.array = self.get_array()
         self.tensor = self.get_tensor()
-        
+
 
 if __name__ == "__main__":
     test_vector = Vector(x=1.0, y=2.0, z=3.0)
@@ -181,7 +197,7 @@ if __name__ == "__main__":
         nucleotides=[
             Nucleotide(
                 i,
-                random.choice(["A", "C", "G", "U"]),
+                random.choice(["A", "C", "G", "U", "N"]),
                 Vector(
                     x=i * 1.0,
                     y=i * 2.0,
