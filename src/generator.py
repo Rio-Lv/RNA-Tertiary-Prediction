@@ -4,6 +4,31 @@ import torch.nn as nn
 from tools import *
 from DataTypes import Nucleotide, Vector, Cluster
 import numpy as np
+import pandas as pd
+
+# ---- Helper functions ----
+def nucleotides_to_clusters(nucleotides:list[Nucleotide], cluster_size:int = 5)->list[Cluster]:
+    """
+    Convert a list of nucleotides to clusters.
+    """
+    distances = np.zeros((len(nucleotides), len(nucleotides)))
+    for i in range(len(nucleotides)):
+        for j in range(len(nucleotides)):
+            if i != j:
+                dx = nucleotides[i].coordinate.x - nucleotides[j].coordinate.x
+                dy = nucleotides[i].coordinate.y - nucleotides[j].coordinate.y
+                dz = nucleotides[i].coordinate.z - nucleotides[j].coordinate.z
+                distances[i][j] = np.sqrt(dx**2 + dy**2 + dz**2)
+    # Create clusters based on the distances in groups of cluster_size
+    # This is a naive approach, in a real scenario we would use a clustering algorithm
+    clusters:list[Cluster] = [] # cluster per nucleotide
+    for i in range(len(nucleotides)):
+        # Get the indices of the nearest neighbors
+        nearest_neighbors = np.argsort(distances[i])[:cluster_size]
+        # Create a cluster with the nucleotide and its nearest neighbors
+        cluster_nucleotides = [nucleotides[j] for j in nearest_neighbors]
+        clusters.append(Cluster(nucleotides=cluster_nucleotides))
+    return clusters
 
 
 class FakeGenerator(nn.Module):
@@ -60,27 +85,7 @@ class FakeGenerator(nn.Module):
                 )
             )
         
-        distances = np.zeros((len(nucleotides), len(nucleotides)))
-
-        for i in range(len(nucleotides)):
-            for j in range(len(nucleotides)):
-                if i != j:
-                    dx = nucleotides[i].coordinate.x - nucleotides[j].coordinate.x
-                    dy = nucleotides[i].coordinate.y - nucleotides[j].coordinate.y
-                    dz = nucleotides[i].coordinate.z - nucleotides[j].coordinate.z
-                    distances[i][j] = np.sqrt(dx**2 + dy**2 + dz**2)
-       
-        # Create clusters based on the distances in groups of 5
-        # This is a naive approach, in a real scenario we would use a clustering algorithm
-        
-        clusters:list[Cluster] = [] # cluster per nucleotide
-        cluster_size = 5 # Nearest Neighbors per cluster
-        for i in range(len(nucleotides)):
-            # Get the indices of the nearest neighbors
-            nearest_neighbors = np.argsort(distances[i])[:cluster_size]
-            # Create a cluster with the nucleotide and its nearest neighbors
-            cluster_nucleotides = [nucleotides[j] for j in nearest_neighbors]
-            clusters.append(Cluster(nucleotides=cluster_nucleotides))
+        clusters = nucleotides_to_clusters(nucleotides, cluster_size=5)
             
         n_iter = 10
         for _ in range(n_iter):
@@ -89,12 +94,72 @@ class FakeGenerator(nn.Module):
                 # Update the cluster with the new coordinates
         return clusters
         
+class RealGenerator:
+    labels_path = "data/train_labels.csv"
+    sequences_path = "data/train_sequences.csv"
+    labels: pd.DataFrame
+    sequences: pd.DataFrame
+    def __init__(self):
+        self.labels = pd.read_csv(self.labels_path)
+        self.sequences = pd.read_csv(self.sequences_path)
+        self.n_sequences = len(self.sequences)
+        
+    def get_random_sequence(self):
+        n_sequences = len(self.sequences)
+        random_sequence = np.random.randint(0, n_sequences)
+        sequence = self.sequences.iloc[random_sequence]
+        sequence = sequence.values
+        pdb_id = sequence[0]
+        sequence_str = sequence[1]
+        return pdb_id, sequence_str
+    
+    def pdb_id_to_nucleotides(self, pdb_id:str):
+        """
+        Convert a PDB ID to a list of nucleotides.
+        """
+        # grab labels where ID contains pdb_id
+        labels = self.labels[self.labels["ID"].str.contains(pdb_id)]
+        
+        nucleotides = []
+        # iterate over the labels and create nucleotides
+        for index, row in labels.iterrows():
+            nucleotide = Nucleotide(
+                index=row["resid"],
+                type=row["resname"],
+                coordinate=Vector(
+                    x=row["x_1"],
+                    y=row["y_1"],
+                    z=row["z_1"],
+                ),
+            )
+            nucleotides.append(nucleotide)
+        return nucleotides
+
+    def make_clusters(self, n_clusters:int=10):
+        pdb_id, sequence_str = self.get_random_sequence()
+        while len(sequence_str) > 100 or len(sequence_str) < 5:
+            pdb_id, sequence_str = self.get_random_sequence()
+        # Lets start with smaller clusters
+        
+        nucleotides = self.pdb_id_to_nucleotides(pdb_id)
+        clusters = nucleotides_to_clusters(nucleotides, cluster_size=5)
+        return clusters[:n_clusters]
+        
+        
+       
+   
+            
 
 if __name__ == "__main__":
+    # set file dir as current dir
+    os.chdir(os.path.dirname(os.path.abspath(__file__)))
     # Example usage
     # Assuming you have a Cluster object
-    fake_generator = FakeGenerator()
-    print(fake_generator)
-    clusters = fake_generator.make_clusters(5)
-    [print(cluster)  for cluster in clusters]
+    # fake_generator = FakeGenerator()
+    # print(fake_generator)
+    # fake_clusters = fake_generator.make_clusters(5)
+    # [print(cluster)  for cluster in fake_clusters]
+    real_generator = RealGenerator(cluster_size=5)
+    real_clusters = real_generator.make_clusters(5)
+    [print(cluster) for cluster in real_clusters]
     
