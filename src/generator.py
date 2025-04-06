@@ -37,9 +37,12 @@ def save_clusters_to_csv(clusters:list[Cluster], filename:str):
     # Create a dataframe from the clusters
     data = []
     for i, cluster in enumerate(clusters):
-        for nucleotide in cluster.nucleotides:
-            data.append([i] + nucleotide.get_array())
-    df = pd.DataFrame(data, columns=["Cluster ID", "dx", "dy", "dz", "A", "C", "G", "U"])
+        array =  cluster.get_array()
+        for j in range(len(array)):
+            row = [i] + array[j]
+            data.append(row)
+        
+    df = pd.DataFrame(data, columns=["Cluster ID", "dx", "dy", "dz", "A", "C", "G", "U", "CB"])
     # Save to CSV
     df.to_csv(filename, index=False)
 
@@ -161,7 +164,7 @@ class RealGenerator:
             clusters += nucleotides_to_clusters(nucleotides, cluster_size=self.cluster_size)
         return clusters[:n_clusters]
         
-        
+       
 import time
    
             
@@ -177,7 +180,7 @@ if __name__ == "__main__":
     # fake_clusters = fake_generator.make_clusters(5)
     # [print(cluster)  for cluster in fake_clusters]
     start_time = time.time()
-    real_generator = RealGenerator(cluster_size=5)
+    real_generator = RealGenerator(cluster_size=10)
     real_clusters = real_generator.make_clusters(100)
     [print(cluster)  for cluster in real_clusters]
     print(len(real_clusters))
