@@ -30,10 +30,23 @@ def nucleotides_to_clusters(nucleotides:list[Nucleotide], cluster_size:int = 5)-
         clusters.append(Cluster(nucleotides=cluster_nucleotides))
     return clusters
 
+def save_clusters_to_csv(clusters:list[Cluster], filename:str):
+    """
+    Save clusters to a CSV file. Add Cluster ID to the first column.
+    """
+    # Create a dataframe from the clusters
+    data = []
+    for i, cluster in enumerate(clusters):
+        for nucleotide in cluster.nucleotides:
+            data.append([i] + nucleotide.get_array())
+    df = pd.DataFrame(data, columns=["Cluster ID", "dx", "dy", "dz", "A", "C", "G", "U"])
+    # Save to CSV
+    df.to_csv(filename, index=False)
+
 
 class FakeGenerator(nn.Module):
-    def __init__(self):
-        default_cluster = Cluster()
+    def __init__(self, cluster_size:int = 5):
+        default_cluster = Cluster(cluster_size=cluster_size)
         input_length = default_cluster.tensor.shape[0] * default_cluster.tensor.shape[1]
         output_length = 3
         super().__init__()
@@ -99,10 +112,11 @@ class RealGenerator:
     sequences_path = "data/train_sequences.csv"
     labels: pd.DataFrame
     sequences: pd.DataFrame
-    def __init__(self):
-        self.labels = pd.read_csv(self.labels_path)
+    def __init__(self, cluster_size = 5):
+        self.labels = pd.read_csv(self.labels_path).dropna()
         self.sequences = pd.read_csv(self.sequences_path)
         self.n_sequences = len(self.sequences)
+        self.cluster_size = cluster_size
         
     def get_random_sequence(self):
         n_sequences = len(self.sequences)
@@ -136,30 +150,38 @@ class RealGenerator:
         return nucleotides
 
     def make_clusters(self, n_clusters:int=10):
-        pdb_id, sequence_str = self.get_random_sequence()
-        while len(sequence_str) > 100 or len(sequence_str) < 5:
+        clusters = []
+        while len(clusters) < n_clusters:
             pdb_id, sequence_str = self.get_random_sequence()
-        # Lets start with smaller clusters
-        
-        nucleotides = self.pdb_id_to_nucleotides(pdb_id)
-        clusters = nucleotides_to_clusters(nucleotides, cluster_size=5)
+            while len(sequence_str) > 100 or len(sequence_str) < self.cluster_size:
+                pdb_id, sequence_str = self.get_random_sequence()
+            # Lets start with smaller clusters
+            
+            nucleotides = self.pdb_id_to_nucleotides(pdb_id)
+            clusters += nucleotides_to_clusters(nucleotides, cluster_size=self.cluster_size)
         return clusters[:n_clusters]
         
         
-       
+import time
    
             
 
 if __name__ == "__main__":
     # set file dir as current dir
     os.chdir(os.path.dirname(os.path.abspath(__file__)))
+    
     # Example usage
     # Assuming you have a Cluster object
     # fake_generator = FakeGenerator()
     # print(fake_generator)
     # fake_clusters = fake_generator.make_clusters(5)
     # [print(cluster)  for cluster in fake_clusters]
+    start_time = time.time()
     real_generator = RealGenerator(cluster_size=5)
-    real_clusters = real_generator.make_clusters(5)
-    [print(cluster) for cluster in real_clusters]
+    real_clusters = real_generator.make_clusters(100)
+    [print(cluster)  for cluster in real_clusters]
+    print(len(real_clusters))
+    print("--- %s seconds ---" % (time.time() - start_time))
+    save_clusters_to_csv(real_clusters, "data/train_clusters.csv")
+    
     

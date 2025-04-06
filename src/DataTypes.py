@@ -71,24 +71,24 @@ class Cluster:
     Coord Vectors should be relative to the first nucleotide in the cluster.
     """
 
-    source_nucleotides: list[Nucleotide]
+    nucleotides: list[Nucleotide]
     array: list[list[float]]  # [dx, dy, dz, a, c, g, u, connected_to_base]
     tensor: Tensor
 
     def __init__(
-        self, nucleotides: list[Nucleotide] = [Nucleotide() for _ in range(5)]
+        self,
+        nucleotides: list[Nucleotide] = [
+            Nucleotide(index=i, type="N") for i in range(5)
+        ],
     ):
-        assert len(nucleotides) == 5, "Cluster must contain exactly 5 nucleotides."
-        self.source_nucleotides = nucleotides
+        self.nucleotides = nucleotides
         self.array = self.get_array()
         self.tensor = self.get_tensor()
-        assert (
-            len(self.array) == 5
-        ), f"Cluster array must be of length 5. Got {len(self.array)}"
+
         assert self.tensor.shape == (
-            5,
+            len(nucleotides),
             8,
-        ), f"Cluster tensor must be of shape (5, 8). Got {self.tensor.shape}"
+        ), f"Cluster tensor must be of shape (N, 8). Got {self.tensor.shape}"
 
     def __repr__(self):
         """
@@ -97,7 +97,7 @@ class Cluster:
         columns = ["dx", "dy", "dz", "A", "C", "G", "U", "CB"]
 
         def format_val(val, width):
-            # Convert from np.float64 to float if necessary 
+            # Convert from np.float64 to float if necessary
             if isinstance(val, Tensor):
                 val = val.item()
             # For floats, try fixed-point with 2 decimals first.
@@ -136,20 +136,20 @@ class Cluster:
                 formatted_row_parts.append(format_val(val, width))
             formatted_row = "    " + " ".join(formatted_row_parts)
             rows.append(formatted_row)
-        
-        rows.append("    " + "-" *47)
+
+        rows.append("    " + "-" * 47)
         # add line break
-        
+
         array_str = "\n".join(rows)
         return array_str
 
     def get_array(self):
-        base_nucleotide = self.source_nucleotides[0]
+        base_nucleotide = self.nucleotides[0]
         relative_nucleotides = []
         connected_to_base = []
         base_index = base_nucleotide.index
 
-        for nucleotide in self.source_nucleotides:
+        for nucleotide in self.nucleotides:
             relative_nucleotide = Nucleotide(
                 index=nucleotide.index,
                 type=nucleotide.type,
@@ -181,9 +181,9 @@ class Cluster:
         dx = vector.x
         dy = vector.y
         dz = vector.z
-        self.source_nucleotides[0].coordinate.x += dx
-        self.source_nucleotides[0].coordinate.y += dy
-        self.source_nucleotides[0].coordinate.z += dz
+        self.nucleotides[0].coordinate.x += dx
+        self.nucleotides[0].coordinate.y += dy
+        self.nucleotides[0].coordinate.z += dz
         self.array = self.get_array()
         self.tensor = self.get_tensor()
 
