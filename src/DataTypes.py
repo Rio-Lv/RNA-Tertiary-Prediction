@@ -174,25 +174,32 @@ class Cluster:
     def get_tensor(self):
         return Tensor(self.array)
 
-    def update(self, vector: Vector = Vector()):
+    def update(self, vectors: list[Vector]):
         """
         Move the base nucleotide by a given delta vector.
         """
-        dx = vector.x
-        dy = vector.y
-        dz = vector.z
-        self.nucleotides[0].coordinate.x += dx
-        self.nucleotides[0].coordinate.y += dy
-        self.nucleotides[0].coordinate.z += dz
+        assert len(vectors) == len(self.nucleotides), (
+            f"Vectors length {len(vectors)} must be equal to nucleotides length {len(self.nucleotides)}"
+        )
+        for i in range(len(self.nucleotides)):
+            nucleotide = self.nucleotides[i]
+            vector = vectors[i]
+            dx = vector.x
+            dy = vector.y
+            dz = vector.z
+            nucleotide.coordinate.x += dx
+            nucleotide.coordinate.y += dy
+            nucleotide.coordinate.z += dz
+            
         self.array = self.get_array()
         self.tensor = self.get_tensor()
 
 
 if __name__ == "__main__":
-    test_vector = Vector(x=1.0, y=2.0, z=3.0)
-    print(test_vector)
-    test_nucleotide = Nucleotide(index=1, type="A", coordinate=test_vector)
-    print(test_nucleotide)
+    # test_vector = Vector(x=1.0, y=2.0, z=3.0)
+    # print(test_vector)
+    # test_nucleotide = Nucleotide(index=1, type="A", coordinate=test_vector)
+    # print(test_nucleotide)
     test_cluster = Cluster(
         nucleotides=[
             Nucleotide(
@@ -208,6 +215,6 @@ if __name__ == "__main__":
         ]
     )
     print(test_cluster)
-    vector = Vector(x=3.0, y=1.0, z=2.0)
-    test_cluster.update(vector)
+    vectors = [Vector(x=i, y=1.0, z=1.0) for i in range(5)]
+    test_cluster.update(vectors)
     print(test_cluster)

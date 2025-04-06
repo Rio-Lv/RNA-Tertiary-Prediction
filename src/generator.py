@@ -48,10 +48,13 @@ def save_clusters_to_csv(clusters:list[Cluster], filename:str):
 
 
 class FakeGenerator(nn.Module):
-    def __init__(self, cluster_size:int = 5):
-        default_cluster = Cluster(cluster_size=cluster_size)
-        input_length = default_cluster.tensor.shape[0] * default_cluster.tensor.shape[1]
-        output_length = 3
+    def __init__(self, cluster_size:int ):
+        self.cluster_size = cluster_size
+        default_cluster = Cluster()
+        input_length = default_cluster.tensor.shape[0] * default_cluster.tensor.shape[1] # cluster_size * 8 
+        # cluster_size nucleotides, each with 8 features
+        output_length = 3 * default_cluster.tensor.shape[1]  # dx, dy, dz
+        
         super().__init__()
         # We define a network that expects a flattened vector of size 40.
         self.stack = nn.Sequential(
@@ -73,25 +76,45 @@ class FakeGenerator(nn.Module):
         x = x.view(-1)
         # Pass through the network
         x = self.stack(x)
-        dx = x[0]
-        dy = x[1]
-        dz = x[2]
+        x = x.view(-1, 3)  # Reshape to (cluster_size, 3)
         
-        cluster.update(Vector(x=dx, y=dy, z=dz))
+        vectors = []
+        # Update the coordinates of the nucleotides
+        for i in range(len(cluster.nucleotides)):
+            nucleotide = cluster.nucleotides[i]
+            vector = Vector(
+                x=nucleotide.coordinate.x + x[i][0],
+                y=nucleotide.coordinate.y + x[i][1],
+                z=nucleotide.coordinate.z + x[i][2],
+            )
+            vectors.append(vector)
+        # Update the cluster with the new coordinates
+        cluster.update(vectors=vectors)
         return cluster
     
-    def make_clusters(self, n_clusters:int = 10):
+    def make_clusters(self):
         """
         Generate a cluster based on the given sequence.
         """
         # Create a list of nucleotides based on the sequence
         nucleotides = []
-        for i in range(n_clusters):
+        for i in range(self.cluster_size):
+            # create random float 0-1
+            magnitude = np.random.rand() * 6.5 * 2
+            # create random rotation
+            rx = np.random.rand() * 2 * np.pi
+            ry = np.random.rand() * 2 * np.pi
+            rz = np.random.rand() * 2 * np.pi
+            # create translation from magnitude and rotation
+            x = magnitude * np.cos(rx)
+            y = magnitude * np.sin(ry)
+            z = magnitude * np.sin(rz)
+            
             random_type = np.random.choice(["A", "C", "G", "U", "N"])
             coordinate = Vector(
-                x=i * 6.5,
-                y=0,
-                z=0,
+                x=x,
+                y=y,
+                z=z,
             )
             nucleotides.append(
                 Nucleotide(
@@ -103,7 +126,7 @@ class FakeGenerator(nn.Module):
         
         clusters = nucleotides_to_clusters(nucleotides, cluster_size=5)
             
-        n_iter = 10
+        n_iter = 1
         for _ in range(n_iter):
             for cluster in clusters:
                 cluster = self.forward(cluster)
@@ -115,7 +138,7 @@ class RealGenerator:
     sequences_path = "data/train_sequences.csv"
     labels: pd.DataFrame
     sequences: pd.DataFrame
-    def __init__(self, cluster_size = 5):
+    def __init__(self, cluster_size:int):
         self.labels = pd.read_csv(self.labels_path).dropna()
         self.sequences = pd.read_csv(self.sequences_path)
         self.n_sequences = len(self.sequences)
@@ -175,16 +198,17 @@ if __name__ == "__main__":
     
     # Example usage
     # Assuming you have a Cluster object
-    # fake_generator = FakeGenerator()
-    # print(fake_generator)
-    # fake_clusters = fake_generator.make_clusters(5)
-    # [print(cluster)  for cluster in fake_clusters]
-    start_time = time.time()
-    real_generator = RealGenerator(cluster_size=10)
-    real_clusters = real_generator.make_clusters(100)
-    [print(cluster)  for cluster in real_clusters]
-    print(len(real_clusters))
-    print("--- %s seconds ---" % (time.time() - start_time))
-    save_clusters_to_csv(real_clusters, "data/train_clusters.csv")
+    fake_generator = FakeGenerator(cluster_size=10)
+    print(fake_generator)
+    fake_clusters = fake_generator.make_clusters()
+    [print(cluster)  for cluster in fake_clusters]
+    
+    # start_time = time.time()
+    # real_generator = RealGenerator(cluster_size=10)
+    # real_clusters = real_generator.make_clusters(100)
+    # [print(cluster)  for cluster in real_clusters]
+    # print(len(real_clusters))
+    # print("--- %s seconds ---" % (time.time() - start_time))
+    # save_clusters_to_csv(real_clusters, "data/train_clusters.csv")
     
     
