@@ -161,8 +161,8 @@ class FakeGenerator(nn.Module):
         self,
         clusters: list[Cluster],
         evaluator: nn.Module,
-        epochs: int = 10,
-        batch_size: int = 32,
+        epochs: int,
+        batch_size: int,
     ):
         """
         Train the fake generator so that when it updates a cluster, the evaluator's
@@ -180,7 +180,7 @@ class FakeGenerator(nn.Module):
           6. Compute BCE loss between evaluator output and target 1.
           7. Backpropagate to update fake generator parameters.
         """
-        self.train() # Ensure generator is in train mode
+        self.train()  # Ensure generator is in train mode
         evaluator.eval()  # Ensure evaluator is in eval mode
         optimizer = torch.optim.Adam(self.parameters(), lr=0.001)
         criterion = nn.BCEWithLogitsLoss()
@@ -306,7 +306,7 @@ class Evaluator(nn.Module):
         x = self.stack(x)
         return x
 
-    def train_model(self, clusters: list[Cluster], epochs: int ):
+    def train_model(self, clusters: list[Cluster], epochs: int, batch_size: int):
         """
         Train the evaluator on the given clusters. use cluster.tensor as input.
         and cluster.real as target.
@@ -332,7 +332,9 @@ class Evaluator(nn.Module):
         print(f"Target shape: {y.shape}")
         # Create a dataset and dataloader
         dataset = torch.utils.data.TensorDataset(x, y)
-        dataloader = torch.utils.data.DataLoader(dataset, batch_size=32, shuffle=True)
+        dataloader = torch.utils.data.DataLoader(
+            dataset, batch_size=batch_size, shuffle=True
+        )
         # Define a loss function and optimizer
         criterion = nn.BCEWithLogitsLoss()
         optimizer = torch.optim.Adam(self.parameters(), lr=0.001)
@@ -375,31 +377,55 @@ def generate_clusters_dataset(
 
     return clusters
 
+def train_round(
+    fake_generator: FakeGenerator,
+    real_generator: RealGenerator,
+    evaluator: Evaluator,
+    n_clusters: int,
+    epochs: int,
+    batch_size: int,
+):
+    # Generate clusters
+    clusters = generate_clusters_dataset(
+        fake_generator=fake_generator,
+        real_generator=real_generator,
+        n_clusters=n_clusters,
+    )
+    # Train evaluator
+    evaluator.train_model(clusters, epochs=epochs, batch_size=batch_size)
+    # Train fake generator
+    fake_generator.train_model(
+        clusters=clusters, evaluator=evaluator, epochs=epochs, batch_size=batch_size
+    )
 
 if __name__ == "__main__":
     # set file dir as current dir
     os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
     cluster_size = 10
+    n_clusters = 100
+    batch_size = 64**2
+    epochs = 100
 
     fake_generator = FakeGenerator(cluster_size=cluster_size)
     real_generator = RealGenerator(cluster_size=cluster_size)
     evaluator = Evaluator(cluster_size=cluster_size)
 
     clusters = generate_clusters_dataset(
-        fake_generator=fake_generator, real_generator=real_generator, n_clusters=50
+        fake_generator=fake_generator,
+        real_generator=real_generator,
+        n_clusters=1000,
     )
     save_clusters_to_csv(clusters=clusters, filename="data/train_clusters.csv")
-    
-    print("Training evaluator...")
-    evaluator.train_model(clusters, epochs=100)
-    print("Training fake generator...")
-    fake_generator.train_model(clusters=clusters, evaluator=evaluator, epochs=100)
-    print("Training evaluator...")
-    evaluator.train_model(clusters, epochs=100)
-    print("Training fake generator...")
-    fake_generator.train_model(clusters=clusters, evaluator=evaluator, epochs=100)
-    print("Training evaluator...")
-    evaluator.train_model(clusters, epochs=100)
-    print("Training fake generator...")
-    fake_generator.train_model(clusters=clusters, evaluator=evaluator, epochs=100)
+
+    # ------ One Round of Training ------
+    for i in range(5):
+        print(f" --- Round {i} --- ")
+        train_round(
+            fake_generator=fake_generator,
+            real_generator=real_generator,
+            evaluator=evaluator,
+            n_clusters=n_clusters,
+            epochs=epochs,
+            batch_size=batch_size,
+        )
