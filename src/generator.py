@@ -11,31 +11,39 @@ import random
 
 
 # ---- Helper functions ----
-def nucleotides_to_clusters(
-    nucleotides: list[Nucleotide], real: bool, cluster_size: int
-) -> list[Cluster]:
-    """
-    Convert a list of nucleotides to clusters.
-    """
-    distances = np.zeros((len(nucleotides), len(nucleotides)))
-    for i in range(len(nucleotides)):
-        for j in range(len(nucleotides)):
-            if i != j:
-                dx = nucleotides[i].coordinate.x - nucleotides[j].coordinate.x
-                dy = nucleotides[i].coordinate.y - nucleotides[j].coordinate.y
-                dz = nucleotides[i].coordinate.z - nucleotides[j].coordinate.z
-                distances[i][j] = np.sqrt(dx**2 + dy**2 + dz**2)
+import numpy as np
 
-    # Create clusters based on the distances in groups of cluster_size
-    # This is a naive approach, in a real scenario we would use a clustering algorithm
-    clusters: list[Cluster] = []  # cluster per nucleotide
-    for i in range(len(nucleotides)):
-        # Get the indices of the nearest neighbors
-        nearest_neighbors = np.argsort(distances[i])[:cluster_size]
-        # Create a cluster with the nucleotide and its nearest neighbors
-        cluster_nucleotides = [nucleotides[j] for j in nearest_neighbors]
-        clusters.append(Cluster(nucleotides=cluster_nucleotides, real=real, cluster_size=cluster_size))
-    return clusters
+def nucleotides_to_clusters(nucleotides: list[Nucleotide], real: bool, cluster_size: int) -> list[Cluster]:
+    """
+    Convert a list of nucleotides to clusters using optimized vectorized operations.
+    """
+    # Extract coordinates to a NumPy array (shape: [n_nucleotides, 3])
+    coords = np.array([[n.coordinate.x, n.coordinate.y, n.coordinate.z] for n in nucleotides])
+    
+    # Compute pairwise squared distances (avoids sqrt for efficiency)
+    diff = coords[:, np.newaxis, :] - coords[np.newaxis, :, :]
+    squared_dists = np.square(diff).sum(axis=-1)
+    
+    # Find nearest neighbors using argpartition (O(n) per row instead of O(n log n))
+    # Get indices of cluster_size closest neighbors (including self)
+    nearest_indices = np.argpartition(squared_dists, cluster_size - 1, axis=1)[:, :cluster_size]
+    
+    # Create row indices for advanced indexing
+    rows = np.arange(squared_dists.shape[0])[:, np.newaxis]
+    
+    # Sort just the nearest indices by distance
+    sorted_within = np.argsort(squared_dists[rows, nearest_indices], axis=1)
+    nearest_indices = nearest_indices[rows, sorted_within]
+    
+    # Convert indices to clusters
+    return [
+        Cluster(
+            nucleotides=[nucleotides[j] for j in row_indices],
+            real=real,
+            cluster_size=cluster_size
+        )
+        for row_indices in nearest_indices
+    ]
 
 
 def save_clusters_to_csv(clusters: list[Cluster], filename: str):
@@ -182,7 +190,7 @@ class FakeGenerator(nn.Module):
         
         self.train()  # Ensure generator is in train mode
         evaluator.eval()  # Ensure evaluator is in eval mode so its parameters are frozen
-        optimizer = torch.optim.Adam(self.parameters(), lr=0.0001)
+        optimizer = torch.optim.Adam(self.parameters(), lr=0.001)
         criterion = nn.BCEWithLogitsLoss()
 
         # Prepare dataset: flatten each cluster tensor (shape: cluster_size*8)
@@ -350,7 +358,7 @@ class Evaluator(nn.Module):
 
         # Define loss and optimizer
         criterion = nn.BCEWithLogitsLoss()
-        optimizer = torch.optim.Adam(self.parameters(), lr=0.0001)
+        optimizer = torch.optim.Adam(self.parameters(), lr=0.001)
 
         for epoch in range(epochs):
             early_stop = False
@@ -440,12 +448,12 @@ if __name__ == "__main__":
     # set file dir as current dir
     os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
-    cluster_size = 10
-    n_clusters = 500
+    cluster_size = 5
+    n_clusters = 2000
     batch_size = 128
-    epochs = 200
-    n_rounds = 100
-    loss_cut_off = 0.1
+    epochs = 1000
+    n_rounds = 20
+    loss_cut_off = 0.01
 
     fake_generator = FakeGenerator(cluster_size=cluster_size)
     real_generator = RealGenerator(cluster_size=cluster_size)
