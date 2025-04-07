@@ -228,3 +228,5 @@ if __name__ == "__main__":
     vectors = [Vector(x=i, y=1.0, z=1.0) for i in range(cluster_size)]
     test_cluster.update(vectors)
     print(test_cluster)
+    
+ 
