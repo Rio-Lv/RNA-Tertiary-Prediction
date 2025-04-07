@@ -5,11 +5,12 @@ from tools import *
 from DataTypes import Nucleotide, Vector, Cluster
 import numpy as np
 import pandas as pd
+import time
 
 
 # ---- Helper functions ----
 def nucleotides_to_clusters(
-    nucleotides: list[Nucleotide], real: bool, cluster_size: int = 5
+    nucleotides: list[Nucleotide], real: bool, cluster_size: int 
 ) -> list[Cluster]:
     """
     Convert a list of nucleotides to clusters.
@@ -22,7 +23,7 @@ def nucleotides_to_clusters(
                 dy = nucleotides[i].coordinate.y - nucleotides[j].coordinate.y
                 dz = nucleotides[i].coordinate.z - nucleotides[j].coordinate.z
                 distances[i][j] = np.sqrt(dx**2 + dy**2 + dz**2)
-                
+
     # Create clusters based on the distances in groups of cluster_size
     # This is a naive approach, in a real scenario we would use a clustering algorithm
     clusters: list[Cluster] = []  # cluster per nucleotide
@@ -34,10 +35,12 @@ def nucleotides_to_clusters(
         clusters.append(Cluster(nucleotides=cluster_nucleotides, real=real))
     return clusters
 
+
 def save_clusters_to_csv(clusters: list[Cluster], filename: str):
     """
     Save clusters to a CSV file. Add Cluster ID to the first column.
     """
+
     # Helper function to convert tensors to floats
     def to_float(x):
         return x.item() if hasattr(x, "item") else x
@@ -58,35 +61,25 @@ def save_clusters_to_csv(clusters: list[Cluster], filename: str):
     df.to_csv(filename, index=False)
     print(f"Saved {len(df)} rows to {filename}")
 
-def update_cluster_csv(cluster_size: int , n_clusters: int):
-    start_time = time.time()
-    
-    fake_generator = FakeGenerator(cluster_size=cluster_size)
-    real_generator = RealGenerator(cluster_size=cluster_size)
-    
-    fake_clusters = fake_generator.make_clusters(n_clusters=n_clusters)
-    real_clusters = real_generator.make_clusters(n_clusters=n_clusters)
-    
-    [print(cluster) for cluster in fake_clusters]
-    [print(cluster) for cluster in real_clusters]
-
-    clusters = real_clusters + fake_clusters
-    
-    save_clusters_to_csv(clusters, "data/train_clusters.csv")
-    
-    print("--- %s seconds ---" % (time.time() - start_time))
-    
-
 
 class FakeGenerator(nn.Module):
+    cluster_size: int
     def __init__(self, cluster_size: int):
         self.cluster_size = cluster_size
-        default_cluster = Cluster(real=False)
+        default_nucleotides = [
+            Nucleotide(
+                index=i,
+                type="A",
+                coordinate=Vector(x=0, y=0, z=0),
+            )
+            for i in range(cluster_size)
+        ]
+        default_cluster = Cluster(real=False, nucleotides=default_nucleotides)
         input_length = (
             default_cluster.tensor.shape[0] * default_cluster.tensor.shape[1]
         )  # cluster_size * 8
         # cluster_size nucleotides, each with 8 features
-        output_length = 3 * default_cluster.tensor.shape[1]  # dx, dy, dz
+        output_length = 3 * cluster_size  # dx, dy, dz
 
         super().__init__()
         # We define a network that expects a flattened vector of size 40.
@@ -110,7 +103,6 @@ class FakeGenerator(nn.Module):
         # Pass through the network
         x = self.stack(x)
         x = x.view(-1, 3)  # Reshape to (cluster_size, 3)
-
         vectors = []
         # Update the coordinates of the nucleotides
         for i in range(len(cluster.nucleotides)):
@@ -125,7 +117,7 @@ class FakeGenerator(nn.Module):
         cluster.update(vectors=vectors)
         return cluster
 
-    def make_clusters(self, n_clusters: int ):
+    def make_clusters(self, n_clusters: int):
         """
         Generate a cluster based on the given sequence.
         """
@@ -142,7 +134,7 @@ class FakeGenerator(nn.Module):
             x = magnitude * np.cos(rx)
             y = magnitude * np.sin(ry)
             z = magnitude * np.sin(rz)
-            
+
             # make regular float
             x = float(x)
             y = float(y)
@@ -162,7 +154,7 @@ class FakeGenerator(nn.Module):
                 )
             )
 
-        clusters = nucleotides_to_clusters(nucleotides, real=False, cluster_size=5)
+        clusters = nucleotides_to_clusters(nucleotides, real=False, cluster_size=self.cluster_size)
 
         n_iter = 1
         for _ in range(n_iter):
@@ -177,6 +169,7 @@ class RealGenerator:
     sequences_path = "data/train_sequences.csv"
     labels: pd.DataFrame
     sequences: pd.DataFrame
+    cluster_size: int
 
     def __init__(self, cluster_size: int):
         self.labels = pd.read_csv(self.labels_path).dropna()
@@ -233,12 +226,10 @@ class RealGenerator:
 class Evaluator(nn.Module):
     def __init__(self, cluster_size: int):
         self.cluster_size = cluster_size
-        default_cluster = Cluster()
+        default_cluster = Cluster(real=False)
         input_length = (
             default_cluster.tensor.shape[0] * default_cluster.tensor.shape[1]
         )  # cluster_size * 8
-        # cluster_size nucleotides, each with 8 features
-        output_length = 3 * default_cluster.tensor.shape[1]  # dx, dy, dz
 
         super().__init__()
         # We define a network that expects a flattened vector of size 40.
@@ -250,12 +241,71 @@ class Evaluator(nn.Module):
             nn.ReLU(),
             nn.Linear(16, 1),  # Outputs if real or fake
         )
-import time
+
+    def forward(self, cluster: Cluster):
+        """
+        Forward pass of the evaluator.
+        """
+        # Get the tensor representation of the cluster
+        x = cluster.tensor
+        # Flatten the tensor to a vector
+        x = x.view(-1)
+        # Pass through the network
+        x = self.stack(x)
+        return x
+
+    def train(self, clusters: list[Cluster]):
+        """
+        Train the evaluator on the given clusters. use cluster.tensor as input.
+        and cluster.real as target.
+        cluster tensor is a torch tensor of shape (cluster_size, 8) where each row is
+        (dx, dy, dz, a, c, g, u, -, cb).
+        """
+        
+        # Create a tensor from the clusters
+        x = torch.stack([cluster.tensor for cluster in clusters])
+        y = torch.tensor([1 if cluster.real else 0 for cluster in clusters])
+        # Flatten the tensor to a vector
+        x = x.view(-1, self.cluster_size * 8)
+        # Pass through the network
+        x = self.stack(x)
+        # Compute the loss
+        loss = nn.BCEWithLogitsLoss()(x, y)
+        print(f"Loss: {loss.item()}")
+        return loss
+        
+
+def generate_clusters_dataset(
+    fake_generator: FakeGenerator, real_generator: RealGenerator, n_clusters: int
+):
+    start_time = time.time()
+
+    fake_clusters = fake_generator.make_clusters(n_clusters=n_clusters)
+    real_clusters = real_generator.make_clusters(n_clusters=n_clusters)
+
+    [print(cluster) for cluster in real_clusters[:2]]
+    [print(cluster) for cluster in fake_clusters[:2]]
+
+    clusters = real_clusters + fake_clusters
+
+    print("--- %s seconds ---" % (time.time() - start_time))
+
+    return clusters
 
 
 if __name__ == "__main__":
     # set file dir as current dir
     os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
-    update_cluster_csv(cluster_size=10, n_clusters=500)
- 
+    cluster_size = 10
+
+    fake_generator = FakeGenerator(cluster_size=cluster_size)
+    real_generator = RealGenerator(cluster_size=cluster_size)
+    evaluator = Evaluator(cluster_size=cluster_size)
+
+    clusters = generate_clusters_dataset(
+        fake_generator=fake_generator, real_generator=real_generator, n_clusters=500
+    )
+    
+    # evaluator.train(clusters)
+    
