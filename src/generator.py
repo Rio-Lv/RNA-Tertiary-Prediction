@@ -10,7 +10,7 @@ import time
 
 # ---- Helper functions ----
 def nucleotides_to_clusters(
-    nucleotides: list[Nucleotide], real: bool, cluster_size: int 
+    nucleotides: list[Nucleotide], real: bool, cluster_size: int
 ) -> list[Cluster]:
     """
     Convert a list of nucleotides to clusters.
@@ -64,9 +64,10 @@ def save_clusters_to_csv(clusters: list[Cluster], filename: str):
 
 class FakeGenerator(nn.Module):
     cluster_size: int
+
     def __init__(self, cluster_size: int):
         self.cluster_size = cluster_size
-        
+
         input_length = 8 * cluster_size  # dx, dy, dz, a, c, g, u, -, cb
 
         # cluster_size nucleotides, each with 8 features
@@ -145,7 +146,9 @@ class FakeGenerator(nn.Module):
                 )
             )
 
-        clusters = nucleotides_to_clusters(nucleotides, real=False, cluster_size=self.cluster_size)
+        clusters = nucleotides_to_clusters(
+            nucleotides, real=False, cluster_size=self.cluster_size
+        )
 
         n_iter = 1
         for _ in range(n_iter):
@@ -230,38 +233,65 @@ class Evaluator(nn.Module):
             nn.Linear(16, 1),  # Outputs if real or fake
         )
 
-    def forward(self, cluster: Cluster):
+    def forward(self, x):
         """
         Forward pass of the evaluator.
         """
-        # Get the tensor representation of the cluster
-        x = cluster.tensor
-        # Flatten the tensor to a vector
-        x = x.view(-1)
         # Pass through the network
         x = self.stack(x)
         return x
-
-    def train(self, clusters: list[Cluster]):
+        
+    def train_model(self, clusters: list[Cluster]):
         """
         Train the evaluator on the given clusters. use cluster.tensor as input.
         and cluster.real as target.
         cluster tensor is a torch tensor of shape (cluster_size, 8) where each row is
         (dx, dy, dz, a, c, g, u, -, cb).
         """
+        # flatten cluster tensors
+        cluster_tensors = [cluster.tensor.view(-1) for cluster in clusters]
+        # assert all tensors are the same size print the first error
+        for i in range(len(cluster_tensors)):
+            if cluster_tensors[i].shape != (self.cluster_size * 8,):
+                print(f"Error in cluster {i}: {cluster_tensors[i].shape}")
+                break
+        targets = []
+        for cluster in clusters:
+            targets.append(1 if cluster.real else 0)
+        # # Create a tensor from the clusters
+        x = torch.stack(cluster_tensors)
+        print(f"Input shape: {x.shape}")
+        y = torch.tensor(targets)
+        y = y.view(-1, 1)
+        print(f"Target shape: {y.shape}")
+        # Create a dataset and dataloader
+        dataset = torch.utils.data.TensorDataset(x, y)
+        dataloader = torch.utils.data.DataLoader(dataset, batch_size=32, shuffle=True)
+        # Define a loss function and optimizer
+        criterion = nn.BCEWithLogitsLoss()
+        optimizer = torch.optim.Adam(self.parameters(), lr=0.001)
+        # Train the model
+        self.train()
+        for epoch in range(10):
+            for i, (inputs, targets) in enumerate(dataloader):
+                # Zero the gradients
+                optimizer.zero_grad()
+                # Forward pass
+                outputs = self(inputs)
+                # Compute the loss
+                loss = criterion(outputs, targets.float())
+                # Backward pass
+                loss.backward()
+                # Update the weights
+                optimizer.step()
+                if i % 100 == 0:
+                    print(f"Epoch {epoch}, Batch {i}, Loss: {loss.item()}")
+                    # print(f"Epoch {epoch}, Batch {i}, Loss: {loss.item()}")
+        print("Training complete.")
+        # Save the model
+        torch.save(self.state_dict(), "evaluator.pth")
         
-        # Create a tensor from the clusters
-        x = torch.stack([cluster.tensor for cluster in clusters])
-        y = torch.tensor([1 if cluster.real else 0 for cluster in clusters])
-        # Flatten the tensor to a vector
-        x = x.view(-1, self.cluster_size * 8)
-        # Pass through the network
-        x = self.stack(x)
-        # Compute the loss
-        loss = nn.BCEWithLogitsLoss()(x, y)
-        print(f"Loss: {loss.item()}")
-        return loss
-        
+   
 
 def generate_clusters_dataset(
     fake_generator: FakeGenerator, real_generator: RealGenerator, n_clusters: int
@@ -294,6 +324,5 @@ if __name__ == "__main__":
     clusters = generate_clusters_dataset(
         fake_generator=fake_generator, real_generator=real_generator, n_clusters=500
     )
-    
-    # evaluator.train(clusters)
-    
+    # save_clusters_to_csv(clusters=clusters, filename="data/train_clusters.csv")
+    evaluator.train_model(clusters)
