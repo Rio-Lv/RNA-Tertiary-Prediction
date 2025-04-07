@@ -77,10 +77,13 @@ class Cluster:
 
     def __init__(
         self,
+        real: bool,
         nucleotides: list[Nucleotide] = [
             Nucleotide(index=i, type="N") for i in range(5)
         ],
+        
     ):
+        self.real = real
         self.nucleotides = nucleotides
         self.array = self.get_array()
         self.tensor = self.get_tensor()
@@ -94,7 +97,8 @@ class Cluster:
         """
         Cluster representation.
         """
-        columns = ["dx", "dy", "dz", "A", "C", "G", "U", "CB"]
+        columns = ["dx", "dy", "dz", "A", "C", "G", "U", "CB", "real"]
+        # Create a string representation of the cluster
 
         def format_val(val, width):
             # Convert from np.float64 to float if necessary
@@ -125,7 +129,7 @@ class Cluster:
                 header_parts.append(f"{col:>5}")
             else:
                 header_parts.append(f"{col:>3}")
-        header = "    " + " ".join(header_parts)
+        header = "    " + " ".join(header_parts) 
 
         # Build the rows, applying the correct width for each column.
         rows = [header]
@@ -134,6 +138,9 @@ class Cluster:
             for i, val in enumerate(row):
                 width = 5 if i < 3 else 3
                 formatted_row_parts.append(format_val(val, width))
+            # add real value
+            real_val = 1 if self.real else 0
+            formatted_row_parts.append(format_val(real_val, 3))
             formatted_row = "    " + " ".join(formatted_row_parts)
             rows.append(formatted_row)
 
@@ -201,6 +208,7 @@ if __name__ == "__main__":
     # test_nucleotide = Nucleotide(index=1, type="A", coordinate=test_vector)
     # print(test_nucleotide)
     test_cluster = Cluster(
+        real=False,
         nucleotides=[
             Nucleotide(
                 i,
