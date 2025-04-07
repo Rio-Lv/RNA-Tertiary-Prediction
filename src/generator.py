@@ -163,63 +163,59 @@ class FakeGenerator(nn.Module):
         evaluator: nn.Module,
         epochs: int,
         batch_size: int,
+        loss_cut_off: float,
     ):
         """
         Train the fake generator so that when it updates a cluster, the evaluator's
         prediction is closer to 1 (i.e. 'real').
-
-        Instead of updating the cluster Python objects (which would break gradients),
-        we operate on the underlying cluster tensor (of shape (cluster_size, 8)).
-
-        Steps:
-          1. For each cluster, flatten its tensor (shape: cluster_size*8).
-          2. Batch these into a tensor of shape (N, cluster_size*8).
-          3. The fake generator produces a delta of shape (N, cluster_size, 3).
-          4. Reshape the inputs to (N, cluster_size, 8) and update the first 3 columns (coordinates).
-          5. Flatten the updated tensor and pass it to the evaluator.
-          6. Compute BCE loss between evaluator output and target 1.
-          7. Backpropagate to update fake generator parameters.
         """
         self.train()  # Ensure generator is in train mode
-        evaluator.eval()  # Ensure evaluator is in eval mode
+        evaluator.eval()  # Ensure evaluator is in eval mode so its parameters are frozen
         optimizer = torch.optim.Adam(self.parameters(), lr=0.001)
         criterion = nn.BCEWithLogitsLoss()
 
-        # Prepare dataset: for each cluster, use its flattened tensor.
+        # Prepare dataset: flatten each cluster tensor (shape: cluster_size*8)
         cluster_tensors = [cluster.tensor.view(-1) for cluster in clusters]
-        X = torch.stack(cluster_tensors)  # Shape: (N, 8*cluster_size)
-        # Target is 1 for all clusters (we want evaluator to think they're real).
-        y = torch.ones((X.size(0), 1))
-
+        X = torch.stack(cluster_tensors)  # (N, 8*cluster_size)
+        y = torch.ones((X.size(0), 1))  # Target is 1 for all clusters
         dataset = torch.utils.data.TensorDataset(X, y)
         dataloader = torch.utils.data.DataLoader(
             dataset, batch_size=batch_size, shuffle=True
         )
 
         for epoch in range(epochs):
+            early_stop = False
             for i, (inputs, targets) in enumerate(dataloader):
                 optimizer.zero_grad()
-                # inputs: (batch_size, 8 * cluster_size)
                 # Get delta from fake generator: (batch_size, cluster_size, 3)
                 delta = self.forward(inputs)
-
                 # Reshape inputs to (batch_size, cluster_size, 8)
                 inputs_reshaped = inputs.view(-1, self.cluster_size, 8)
                 updated = inputs_reshaped.clone()
                 # Add delta to the coordinate columns (first 3 columns)
                 updated[:, :, :3] = updated[:, :, :3] + delta
-                # Flatten back to (batch_size, 8 * cluster_size)
+                # Flatten updated tensor back to (batch_size, 8 * cluster_size)
                 updated_flat = updated.view(-1, self.cluster_size * 8)
 
-                # Pass the updated tensor through the evaluator.
-                # (Ensure the evaluator is in eval mode or its parameters are frozen.)
+                # Evaluate the updated clusters
                 pred = evaluator(updated_flat)
                 loss = criterion(pred, targets.float())
                 loss.backward()
                 optimizer.step()
 
                 if i % 100 == 0:
-                    print(f"Epoch {epoch}, Batch {i}, Loss: {loss.item()}")
+                    print(
+                        f"Fake Generator - Epoch {epoch}, Batch {i}, Loss: {loss.item()}"
+                    )
+                if loss.item() < loss_cut_off:
+                    print(
+                        f"Fake Generator - Early stopping at epoch {epoch}, batch {i} with loss {loss.item()}"
+                    )
+                    early_stop = True
+                    break
+            if early_stop:
+                break
+
         print("Fake generator training complete.")
 
 
@@ -306,57 +302,55 @@ class Evaluator(nn.Module):
         x = self.stack(x)
         return x
 
-    def train_model(self, clusters: list[Cluster], epochs: int, batch_size: int):
+    def train_model(
+        self, clusters: list[Cluster], epochs: int, batch_size: int, loss_cut_off: float
+    ):
         """
-        Train the evaluator on the given clusters. use cluster.tensor as input.
-        and cluster.real as target.
-        cluster tensor is a torch tensor of shape (cluster_size, 8) where each row is
-        (dx, dy, dz, a, c, g, u, -, cb).
+        Train the evaluator on the given clusters.
         """
         self.train()  # Ensure evaluator is in train mode
-        # flatten cluster tensors
+        # Flatten cluster tensors
         cluster_tensors = [cluster.tensor.view(-1) for cluster in clusters]
-        # assert all tensors are the same size print the first error
+        # Check for correct tensor sizes
         for i in range(len(cluster_tensors)):
             if cluster_tensors[i].shape != (self.cluster_size * 8,):
                 print(f"Error in cluster {i}: {cluster_tensors[i].shape}")
                 break
-        targets = []
-        for cluster in clusters:
-            targets.append(1 if cluster.real else 0)
-        # # Create a tensor from the clusters
-        x = torch.stack(cluster_tensors)
-        print(f"Input shape: {x.shape}")
-        y = torch.tensor(targets)
-        y = y.view(-1, 1)
-        print(f"Target shape: {y.shape}")
-        # Create a dataset and dataloader
+        targets = [1 if cluster.real else 0 for cluster in clusters]
+
+        # Create dataset and dataloader
+        x = torch.stack(cluster_tensors)  # (N, 8*cluster_size)
+        y = torch.tensor(targets).view(-1, 1)
         dataset = torch.utils.data.TensorDataset(x, y)
         dataloader = torch.utils.data.DataLoader(
             dataset, batch_size=batch_size, shuffle=True
         )
-        # Define a loss function and optimizer
+
+        # Define loss and optimizer
         criterion = nn.BCEWithLogitsLoss()
         optimizer = torch.optim.Adam(self.parameters(), lr=0.001)
-        # Train the model
-        self.train()
+
         for epoch in range(epochs):
+            early_stop = False
             for i, (inputs, targets) in enumerate(dataloader):
-                # Zero the gradients
                 optimizer.zero_grad()
-                # Forward pass
                 outputs = self(inputs)
-                # Compute the loss
                 loss = criterion(outputs, targets.float())
-                # Backward pass
                 loss.backward()
-                # Update the weights
                 optimizer.step()
+
                 if i % 100 == 0:
-                    print(f"Epoch {epoch}, Batch {i}, Loss: {loss.item()}")
-                    # print(f"Epoch {epoch}, Batch {i}, Loss: {loss.item()}")
-        print("Training complete.")
-        # Save the model
+                    print(f"Evaluator - Epoch {epoch}, Batch {i}, Loss: {loss.item()}")
+                if loss.item() < loss_cut_off:
+                    print(
+                        f"Evaluator - Early stopping at epoch {epoch}, batch {i} with loss {loss.item()}"
+                    )
+                    early_stop = True
+                    break
+            if early_stop:
+                break
+
+        print("Evaluator training complete.")
         torch.save(self.state_dict(), "evaluator.pth")
 
 
@@ -377,6 +371,7 @@ def generate_clusters_dataset(
 
     return clusters
 
+
 def train_round(
     fake_generator: FakeGenerator,
     real_generator: RealGenerator,
@@ -384,6 +379,7 @@ def train_round(
     n_clusters: int,
     epochs: int,
     batch_size: int,
+    loss_cut_off: float,
 ):
     # Generate clusters
     clusters = generate_clusters_dataset(
@@ -392,11 +388,18 @@ def train_round(
         n_clusters=n_clusters,
     )
     # Train evaluator
-    evaluator.train_model(clusters, epochs=epochs, batch_size=batch_size)
+    evaluator.train_model(
+        clusters, epochs=epochs, batch_size=batch_size, loss_cut_off=loss_cut_off
+    )
     # Train fake generator
     fake_generator.train_model(
-        clusters=clusters, evaluator=evaluator, epochs=epochs, batch_size=batch_size
+        clusters=clusters,
+        evaluator=evaluator,
+        epochs=epochs,
+        batch_size=batch_size,
+        loss_cut_off=loss_cut_off,
     )
+
 
 if __name__ == "__main__":
     # set file dir as current dir
@@ -406,6 +409,7 @@ if __name__ == "__main__":
     n_clusters = 100
     batch_size = 64**2
     epochs = 100
+    loss_cut_off = 0.01
 
     fake_generator = FakeGenerator(cluster_size=cluster_size)
     real_generator = RealGenerator(cluster_size=cluster_size)
@@ -419,7 +423,7 @@ if __name__ == "__main__":
     save_clusters_to_csv(clusters=clusters, filename="data/train_clusters.csv")
 
     # ------ One Round of Training ------
-    for i in range(5):
+    for i in range(50):
         print(f" --- Round {i} --- ")
         train_round(
             fake_generator=fake_generator,
@@ -428,4 +432,5 @@ if __name__ == "__main__":
             n_clusters=n_clusters,
             epochs=epochs,
             batch_size=batch_size,
+            loss_cut_off=loss_cut_off,
         )
