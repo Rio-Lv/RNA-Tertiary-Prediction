@@ -7,7 +7,16 @@ import numpy as np
 import pandas as pd
 import time
 import random
+import math
+from torch import optim
 
+# ---- Use Torch for GPU acceleration ----
+if torch.backends.mps.is_available():
+    mps_device = torch.device("mps")
+    x = torch.ones(1, device=mps_device)
+    print (x)
+else:
+    print ("MPS device not found.")
 
 
 # ---- Helper functions ----
@@ -76,43 +85,60 @@ class FakeGenerator(nn.Module):
     cluster_size: int
 
     def __init__(self, cluster_size: int):
+        super().__init__()
         self.cluster_size = cluster_size
 
-        input_length = 8 * cluster_size  # dx, dy, dz, a, c, g, u, -, cb
+        # The input will be reshaped to (batch_size, 1, cluster_size, 8)
+        # Our goal is to output a delta vector per nucleotide,
+        # i.e. an output shape of (batch_size, cluster_size, 3)
 
-        # cluster_size nucleotides, each with 8 features
-        output_length = 3 * cluster_size  # dx, dy, dz
+        # Define a convolutional block.
+        self.conv_block = nn.Sequential(
+            nn.Conv2d(in_channels=1, out_channels=16, kernel_size=(3,3), padding=1),
+            nn.LeakyReLU(0.2),
+            nn.MaxPool2d(kernel_size=2),
+            nn.Conv2d(in_channels=16, out_channels=32, kernel_size=(3,3), padding=1),
+            nn.LeakyReLU(0.2),
+            nn.MaxPool2d(kernel_size=2)
+        )
 
-        super().__init__()
-        # We define a network that expects a flattened vector of size 40.
-        self.stack = nn.Sequential(
-            nn.Linear(input_length, 64),
+        # Use adaptive pooling to force a fixed output size.
+        # For example, regardless of the input spatial dimensions,
+        # we output a feature map of size (4,4).
+        self.adaptive_pool = nn.AdaptiveAvgPool2d((4, 4))
+        # After conv & pooling, the feature map has shape (batch, 32, 4, 4)
+        # which flattens to 32*4*4 = 512.
+        self.fc_block = nn.Sequential(
+            nn.Linear(512, 64),
             nn.LeakyReLU(0.2),
             nn.Dropout(0.3),
-            nn.Linear(64, 32),
-            nn.LeakyReLU(0.2),
-            nn.Linear(32, output_length)
+            nn.Linear(64, cluster_size * 3)  # One delta (dx,dy,dz) per nucleotide
         )
 
     def forward(self, x):
         """
-        Forward pass that supports a batch of flattened cluster tensors.
+        Forward pass of the fake generator.
         x: Tensor of shape (batch_size, 8 * cluster_size)
         Returns: Tensor of shape (batch_size, cluster_size, 3)
         """
         batch_size = x.size(0)
-        x = x.clone()
-        x = x.view(batch_size, 8 * self.cluster_size)
-        x = self.stack(x)  # (batch_size, 3 * cluster_size)
-        x = x.view(batch_size, self.cluster_size, 3)
+        # Reshape the flattened vector to a 4D tensor: (batch_size, 1, cluster_size, 8)
+        x = x.view(batch_size, 1, self.cluster_size, 8)
+        x = self.conv_block(x)
+        x = self.adaptive_pool(x)  # Now x has shape (batch_size, 32, 4, 4)
+        x = x.view(batch_size, -1)  # Flatten to (batch_size, 512)
+        x = self.fc_block(x)        # (batch_size, cluster_size * 3)
+        x = x.view(batch_size, self.cluster_size, 3)  # Reshape to (batch_size, cluster_size, 3)
         return x
 
     def update_cluster(self, cluster: Cluster):
-        delta = self.forward(cluster.tensor.view(1,-1))
-        
-        # Reshape delta to (cluster_size, 3)
-        delta = delta.view(self.cluster_size, 3)
-        # delta to vectors
+        """
+        Inference method: given one Cluster, apply the generator’s delta
+        to update its nucleotide coordinates.
+        """
+        # Ensure the cluster.tensor is flattened as expected.
+        delta = self.forward(cluster.tensor.view(1, -1))  # (1, cluster_size, 3)
+        delta = delta.view(self.cluster_size, 3)  # (cluster_size, 3)
         vectors = []
         for i in range(self.cluster_size):
             vector = Vector(
@@ -121,121 +147,85 @@ class FakeGenerator(nn.Module):
                 z=delta[i][2].item(),
             )
             vectors.append(vector)
-        # Update the cluster with the new coordinates
         cluster.update(vectors)
         return cluster
-    
+
     def make_clusters(self, n_clusters: int):
         """
-        Generate a cluster based on the given sequence.
+        Generate a set of clusters using a simple cumulative translation.
+        Each nucleotide’s coordinate is generated based on a random magnitude and rotation.
+        Then, clusters are created based on the nearest neighbors and updated using this generator.
         """
-        # Create a list of nucleotides based on the sequence
         nucleotides = []
-        x = 0
-        y = 0 
-        z = 0
+        x, y, z = 0, 0, 0
         for i in range(n_clusters):
-            # create random float 0-1
             magnitude = np.random.rand() * 6.5
-            # create random rotation
             rx = np.random.rand() * 2 * np.pi
             ry = np.random.rand() * 2 * np.pi
             rz = np.random.rand() * 2 * np.pi
-            # create translation from magnitude and rotation
             x += float(magnitude * np.cos(rx))
             y += float(magnitude * np.sin(ry))
             z += float(magnitude * np.sin(rz))
-
-
             random_type = np.random.choice(["A", "C", "G", "U", "N"])
-            coordinate = Vector(
-                x=x,
-                y=y,
-                z=z,
-            )
-            nucleotides.append(
-                Nucleotide(
-                    index=i,
-                    type=random_type,
-                    coordinate=coordinate,
-                )
-            )
-
-        clusters = nucleotides_to_clusters(
-            nucleotides, real=False, cluster_size=self.cluster_size
-        )
+            coordinate = Vector(x=x, y=y, z=z)
+            nucleotides.append(Nucleotide(index=i, type=random_type, coordinate=coordinate))
         
+        clusters = nucleotides_to_clusters(nucleotides, real=False, cluster_size=self.cluster_size)
         updated_clusters = []
         for cluster in clusters:
-            # Update the cluster with the new coordinates
             updated_clusters.append(self.update_cluster(cluster))
-
         return updated_clusters
 
-    def train_model(
-        self,
-        clusters: list[Cluster],
-        evaluator: nn.Module,
-        epochs: int,
-        batch_size: int,
-        loss_cut_off: float,
-    ):
+    def train_model(self, clusters: list[Cluster], evaluator: nn.Module, epochs: int, batch_size: int, loss_cut_off: float):
         """
         Train the fake generator so that when it updates a cluster, the evaluator's
-        prediction is closer to 1 (i.e. 'real').
+        prediction approaches 1 (i.e. the evaluator believes the cluster is real).
+        This method uses a differentiable update mechanism on the underlying cluster tensor.
         """
-        
+        # Use only clusters labeled as fake.
         clusters = [c for c in clusters if not c.real]
-            
-        
-        self.train()  # Ensure generator is in train mode
-        evaluator.eval()  # Ensure evaluator is in eval mode so its parameters are frozen
-        optimizer = torch.optim.Adam(self.parameters(), lr=0.001)
+        self.train()          # Generator in train mode.
+        evaluator.eval()      # Evaluator in eval (frozen) mode.
+        optimizer = optim.Adam(self.parameters(), lr=0.001)
         criterion = nn.BCEWithLogitsLoss()
 
         # Prepare dataset: flatten each cluster tensor (shape: cluster_size*8)
         cluster_tensors = [cluster.tensor.view(-1) for cluster in clusters]
-        X = torch.stack(cluster_tensors)  # (N, 8*cluster_size)
-        y = torch.ones((X.size(0), 1))  # Target is 1 for all clusters
+        X = torch.stack(cluster_tensors)  # Shape: (N, 8 * cluster_size)
+        y = torch.ones((X.size(0), 1))       # Target is 1 for each cluster.
         dataset = torch.utils.data.TensorDataset(X, y)
-        dataloader = torch.utils.data.DataLoader(
-            dataset, batch_size=batch_size, shuffle=True
-        )
+        dataloader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=True)
 
         for epoch in range(epochs):
             early_stop = False
             for i, (inputs, targets) in enumerate(dataloader):
                 optimizer.zero_grad()
-                # Get delta from fake generator: (batch_size, cluster_size, 3)
+                # Get delta from generator: (batch_size, cluster_size, 3)
                 delta = self.forward(inputs)
                 # Reshape inputs to (batch_size, cluster_size, 8)
                 inputs_reshaped = inputs.view(-1, self.cluster_size, 8)
                 updated = inputs_reshaped.clone()
-                # Add delta to the coordinate columns (first 3 columns)
+                # Update only the coordinate columns (first 3 columns) with the computed delta.
                 updated[:, :, :3] = updated[:, :, :3] + delta
                 # Flatten updated tensor back to (batch_size, 8 * cluster_size)
                 updated_flat = updated.view(-1, self.cluster_size * 8)
-
-                # Evaluate the updated clusters
+                # Evaluate the updated clusters using the evaluator.
                 pred = evaluator(updated_flat)
                 loss = criterion(pred, targets.float())
                 loss.backward()
                 optimizer.step()
 
-                if i % 100 == 0:
-                    print(
-                        f"Fake Generator - Epoch {epoch}, Batch {i}, Loss: {loss.item()}"
-                    )
+                if i % max(1, math.floor(epochs/20)) == 0:
+                    print(f"Fake Generator - Epoch {epoch}, Batch {i}, Loss: {loss.item()}")
                 if loss.item() < loss_cut_off:
-                    print(
-                        f"Fake Generator - Early stopping at epoch {epoch}, batch {i} with loss {loss.item()}"
-                    )
+                    print(f"Fake Generator - Early stopping at epoch {epoch}, batch {i} with loss {loss.item()}")
                     early_stop = True
                     break
             if early_stop:
                 break
 
         print("Fake generator training complete.")
+
     def save(self, filename: str):
         """
         Save the generator model to a file.
@@ -304,61 +294,77 @@ class RealGenerator:
                 
         return clusters[:n_clusters]
 
-
 class Evaluator(nn.Module):
     def __init__(self, cluster_size: int):
-        self.cluster_size = cluster_size
-        input_length = 8 * cluster_size  # dx, dy, dz, a, c, g, u, -, cb
-
+        """
+        The evaluator is now defined as a convolutional network.
+        It accepts an input of shape (batch_size, cluster_size * 8) and
+        reshapes it to (batch_size, 1, cluster_size, 8). The conv layers
+        extract spatial features and an adaptive pooling layer ensures a fixed output size.
+        """
         super().__init__()
-        # We define a network that expects a flattened vector of size 40.
-        self.stack = nn.Sequential(
-            nn.Linear(input_length, 64),
+        self.cluster_size = cluster_size
+        # Convolutional block: treat cluster data as a 2D image with 1 channel.
+        self.conv_block = nn.Sequential(
+            nn.Conv2d(in_channels=1, out_channels=16, kernel_size=(3,3), padding=1),
+            nn.LeakyReLU(0.2),
+            nn.MaxPool2d(kernel_size=2),
+            nn.Conv2d(in_channels=16, out_channels=32, kernel_size=(3,3), padding=1),
+            nn.LeakyReLU(0.2),
+            nn.MaxPool2d(kernel_size=2),
+        )
+        # Use adaptive pooling to force a fixed spatial size (e.g. 4x4)
+        self.adaptive_pool = nn.AdaptiveAvgPool2d((4,4))
+        # Fully-connected block: flattened feature vector size will be 32 * 4 * 4 = 512.
+        self.fc_block = nn.Sequential(
+            nn.Linear(512, 64),
             nn.LeakyReLU(0.2),
             nn.Dropout(0.3),
-            nn.Linear(64, 32),
-            nn.LeakyReLU(0.2),
-            nn.Linear(32, 1)
+            nn.Linear(64, 1)
         )
 
     def forward(self, x):
         """
         Forward pass of the evaluator.
+        Expects x to be of shape (batch_size, cluster_size*8).
+        Reshape x to (batch_size, 1, cluster_size, 8) before applying conv layers.
         """
-        # Pass through the network
-        x = self.stack(x)
+        batch_size = x.size(0)
+        # Reshape to (batch_size, 1, cluster_size, 8)
+        x = x.view(batch_size, 1, self.cluster_size, 8)
+        x = self.conv_block(x)
+        x = self.adaptive_pool(x)  # Now x has shape (batch_size, 32, 4, 4)
+        x = x.view(batch_size, -1)  # Flatten to (batch_size, 512)
+        x = self.fc_block(x)
         return x
 
-    def train_model(
-        self, clusters: list[Cluster], epochs: int, batch_size: int, loss_cut_off: float
-    ):
+    def train_model(self, clusters: list[Cluster], epochs: int, batch_size: int, loss_cut_off: float):
         """
         Train the evaluator on the given clusters.
+        Each cluster provides a tensor (of shape (cluster_size,8)) that is flattened to (cluster_size*8,)
+        and paired with a target (1 if real else 0).
+        Early stopping is applied when a batch loss is below loss_cut_off.
         """
-        self.train()  # Ensure evaluator is in train mode
-        # Flatten cluster tensors
+        self.train()  # Set evaluator to train mode
+
+        # Flatten cluster tensors and check sizes.
         cluster_tensors = [cluster.tensor.view(-1) for cluster in clusters]
-        # Check for correct tensor sizes
         for i in range(len(cluster_tensors)):
             if cluster_tensors[i].shape != (self.cluster_size * 8,):
                 print(f"Error in cluster {i}: {cluster_tensors[i].shape}")
                 break
-            
-        # # Replace targets with smoothed labels
-        # targets = [0.9 if cluster.real else 0.1 for cluster in clusters]
+
+        # Use targets (you might use smoothed labels if desired)
         targets = [1 if cluster.real else 0 for cluster in clusters]
 
-        # Create dataset and dataloader
-        x = torch.stack(cluster_tensors)  # (N, 8*cluster_size)
+        # Build dataset and dataloader
+        x = torch.stack(cluster_tensors)  # (N, cluster_size*8)
         y = torch.tensor(targets).view(-1, 1)
         dataset = torch.utils.data.TensorDataset(x, y)
-        dataloader = torch.utils.data.DataLoader(
-            dataset, batch_size=batch_size, shuffle=True
-        )
+        dataloader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=True)
 
-        # Define loss and optimizer
         criterion = nn.BCEWithLogitsLoss()
-        optimizer = torch.optim.Adam(self.parameters(), lr=0.001)
+        optimizer = optim.Adam(self.parameters(), lr=0.001)
 
         for epoch in range(epochs):
             early_stop = False
@@ -369,12 +375,12 @@ class Evaluator(nn.Module):
                 loss.backward()
                 optimizer.step()
 
-                if i % 100 == 0:
+                # Print progress occasionally
+                if i % max(1, math.floor(epochs/20)) == 0:
                     print(f"Evaluator - Epoch {epoch}, Batch {i}, Loss: {loss.item()}")
+                # Early stopping if loss is below threshold
                 if loss.item() < loss_cut_off:
-                    print(
-                        f"Evaluator - Early stopping at epoch {epoch}, batch {i} with loss {loss.item()}"
-                    )
+                    print(f"Evaluator - Early stopping at epoch {epoch}, batch {i} with loss {loss.item()}")
                     early_stop = True
                     break
             if early_stop:
@@ -382,7 +388,7 @@ class Evaluator(nn.Module):
 
     def save(self, filename: str):
         """
-        Save the evaluator model to a file.
+        Save the evaluator model.
         """
         torch.save(self.state_dict(), filename)
         print(f"Saved evaluator model to {filename}")
@@ -391,9 +397,8 @@ class Evaluator(nn.Module):
         """
         Evaluate a single cluster.
         """
-        # Flatten the cluster tensor
-        x = cluster.tensor.view(-1)
-        # Pass through the evaluator
+        # Flatten the cluster tensor and add batch dimension
+        x = cluster.tensor.view(1, -1)  
         pred = self(x)
         return pred.item()
 
@@ -405,11 +410,27 @@ def generate_clusters_dataset(
 
     fake_clusters = fake_generator.make_clusters(n_clusters=n_clusters)
     real_clusters = real_generator.make_clusters(n_clusters=n_clusters)
+    # real_with_noise_clusters = real_generator.make_clusters(n_clusters=n_clusters)
+    # # Add noise to real clusters
+    # for i in range(len(real_with_noise_clusters)):
+    #     # Add noise to the coordinates of the real clusters
+    #     noise = np.random.normal(-3, 3, size=(real_with_noise_clusters[i].cluster_size, 3))
+    #     for j in range(real_with_noise_clusters[i].cluster_size):
+    #         real_with_noise_clusters[i].nucleotides[j].coordinate.x += noise[j][0]
+    #         real_with_noise_clusters[i].nucleotides[j].coordinate.y += noise[j][1]
+    #         real_with_noise_clusters[i].nucleotides[j].coordinate.z += noise[j][2]
+    # # set real with noise to false
+    # for i in range(len(real_with_noise_clusters)):
+    #     real_with_noise_clusters[i].real = False
+ 
 
     [print(cluster) for cluster in real_clusters[:2]]
     [print(cluster) for cluster in fake_clusters[:2]]
+    # [print(cluster) for cluster in real_with_noise_clusters[:2]]
 
-    clusters = real_clusters + fake_clusters
+    # clusters = real_clusters + fake_clusters + real_with_noise_clusters
+    clusters = real_clusters + fake_clusters 
+    random.shuffle(clusters)
 
     print("--- %s seconds ---" % (time.time() - start_time))
 
@@ -449,15 +470,23 @@ if __name__ == "__main__":
     os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
     cluster_size = 5
-    n_clusters = 2000
-    batch_size = 128
-    epochs = 1000
-    n_rounds = 20
-    loss_cut_off = 0.01
+    batch_size = 32
+    n_clusters = 500
+    epochs = 100
+    n_rounds = 25
+    loss_cut_off = 0.1
 
     fake_generator = FakeGenerator(cluster_size=cluster_size)
     real_generator = RealGenerator(cluster_size=cluster_size)
     evaluator = Evaluator(cluster_size=cluster_size)
+    
+    
+    # # Load Models to continue training
+    # if os.path.exists("models/fake_generator.pt"):
+    #     fake_generator.load_state_dict(torch.load("models/fake_generator.pt"))
+    # if os.path.exists("models/evaluator.pt"):
+    #     evaluator.load_state_dict(torch.load("models/evaluator.pt"))
+        
 
     # ------ One Round of Training ------
     for i in range(n_rounds):
@@ -472,7 +501,11 @@ if __name__ == "__main__":
             batch_size=batch_size,
             loss_cut_off=loss_cut_off,
         )
-        # Save models
+        if i % 5 == 0:
+            # Save models
+            fake_generator.save(f"models/fake_generator.pt")
+            evaluator.save(f"models/evaluator.pt")
+            
     fake_generator.save(f"models/fake_generator.pt")
     evaluator.save(f"models/evaluator.pt")
     
