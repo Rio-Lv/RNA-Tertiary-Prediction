@@ -469,6 +469,7 @@ if __name__ == "__main__":
     # set file dir as current dir
     os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
+    # Check Point for Hyperparameters
     cluster_size = 5
     batch_size = 32
     n_clusters = 500
