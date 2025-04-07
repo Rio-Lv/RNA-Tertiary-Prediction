@@ -66,18 +66,9 @@ class FakeGenerator(nn.Module):
     cluster_size: int
     def __init__(self, cluster_size: int):
         self.cluster_size = cluster_size
-        default_nucleotides = [
-            Nucleotide(
-                index=i,
-                type="A",
-                coordinate=Vector(x=0, y=0, z=0),
-            )
-            for i in range(cluster_size)
-        ]
-        default_cluster = Cluster(real=False, nucleotides=default_nucleotides)
-        input_length = (
-            default_cluster.tensor.shape[0] * default_cluster.tensor.shape[1]
-        )  # cluster_size * 8
+        
+        input_length = 8 * cluster_size  # dx, dy, dz, a, c, g, u, -, cb
+
         # cluster_size nucleotides, each with 8 features
         output_length = 3 * cluster_size  # dx, dy, dz
 
@@ -226,18 +217,7 @@ class RealGenerator:
 class Evaluator(nn.Module):
     def __init__(self, cluster_size: int):
         self.cluster_size = cluster_size
-        default_nucleotides = [
-            Nucleotide(
-                index=i,
-                type="A",
-                coordinate=Vector(x=0, y=0, z=0),
-            )
-            for i in range(cluster_size)
-        ]
-        default_cluster = Cluster(real=False, nucleotides=default_nucleotides)
-        input_length = (
-            default_cluster.tensor.shape[0] * default_cluster.tensor.shape[1]
-        )  # cluster_size * 8
+        input_length = 8 * cluster_size  # dx, dy, dz, a, c, g, u, -, cb
 
         super().__init__()
         # We define a network that expects a flattened vector of size 40.
