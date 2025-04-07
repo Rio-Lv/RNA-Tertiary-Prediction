@@ -32,7 +32,7 @@ def nucleotides_to_clusters(
         nearest_neighbors = np.argsort(distances[i])[:cluster_size]
         # Create a cluster with the nucleotide and its nearest neighbors
         cluster_nucleotides = [nucleotides[j] for j in nearest_neighbors]
-        clusters.append(Cluster(nucleotides=cluster_nucleotides, real=real))
+        clusters.append(Cluster(nucleotides=cluster_nucleotides, real=real, cluster_size=cluster_size))
     return clusters
 
 
@@ -169,6 +169,13 @@ class FakeGenerator(nn.Module):
         Train the fake generator so that when it updates a cluster, the evaluator's
         prediction is closer to 1 (i.e. 'real').
         """
+        
+        # add noise to the clusters
+        for cluster in clusters:
+            noise = torch.randn(cluster.tensor.shape) * 3
+            cluster.tensor += noise
+            
+        
         self.train()  # Ensure generator is in train mode
         evaluator.eval()  # Ensure evaluator is in eval mode so its parameters are frozen
         optimizer = torch.optim.Adam(self.parameters(), lr=0.001)
@@ -270,11 +277,12 @@ class RealGenerator:
             while len(sequence_str) > 100 or len(sequence_str) < self.cluster_size:
                 pdb_id, sequence_str = self.get_random_sequence()
             # Lets start with smaller clusters
-
+            
             nucleotides = self.pdb_id_to_nucleotides(pdb_id)
-            clusters += nucleotides_to_clusters(
-                nucleotides, real=True, cluster_size=self.cluster_size
-            )
+            if len(nucleotides) > self.cluster_size:
+                clusters += nucleotides_to_clusters(
+                    nucleotides, real=True, cluster_size=self.cluster_size
+                )
         return clusters[:n_clusters]
 
 
@@ -406,10 +414,10 @@ if __name__ == "__main__":
     os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
     cluster_size = 10
-    n_clusters = 100
-    batch_size = 64**2
+    n_clusters = 1000
+    batch_size = 32
     epochs = 100
-    loss_cut_off = 0.01
+    loss_cut_off = 0.001
 
     fake_generator = FakeGenerator(cluster_size=cluster_size)
     real_generator = RealGenerator(cluster_size=cluster_size)

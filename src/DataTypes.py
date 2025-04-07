@@ -78,18 +78,20 @@ class Cluster:
     def __init__(
         self,
         real: bool,
-        nucleotides: list[Nucleotide] 
+        nucleotides: list[Nucleotide],
+        cluster_size: int
         
     ):
         self.real = real
         self.nucleotides = nucleotides
         self.array = self.get_array()
         self.tensor = self.get_tensor()
+        self.cluster_size = cluster_size
 
         assert self.tensor.shape == (
-            len(nucleotides),
+            cluster_size,
             8,
-        ), f"Cluster tensor must be of shape (N, 8). Got {self.tensor.shape}"
+        ), f"Cluster tensor must be of shape ({cluster_size}, 8). Got {self.tensor.shape}, cluster: {self}"
 
     def __repr__(self):
         """
@@ -205,6 +207,7 @@ if __name__ == "__main__":
     # print(test_vector)
     # test_nucleotide = Nucleotide(index=1, type="A", coordinate=test_vector)
     # print(test_nucleotide)
+    cluster_size = 10
     test_cluster = Cluster(
         real=False,
         nucleotides=[
@@ -217,10 +220,11 @@ if __name__ == "__main__":
                     z=i * 3.0,
                 ),
             )
-            for i in range(5)
-        ]
+            for i in range(cluster_size)
+        ],
+        cluster_size=cluster_size,
     )
     print(test_cluster)
-    vectors = [Vector(x=i, y=1.0, z=1.0) for i in range(5)]
+    vectors = [Vector(x=i, y=1.0, z=1.0) for i in range(cluster_size)]
     test_cluster.update(vectors)
     print(test_cluster)
