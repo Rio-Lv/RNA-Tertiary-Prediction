@@ -282,7 +282,7 @@ class RealGenerator:
         clusters = []
         while len(clusters) < n_clusters:
             pdb_id, sequence_str = self.get_random_sequence()
-            while len(sequence_str) > 100 or len(sequence_str) < self.cluster_size:
+            while len(sequence_str) > 300 or len(sequence_str) < self.cluster_size:
                 pdb_id, sequence_str = self.get_random_sequence()
             # Lets start with smaller clusters
             
@@ -511,3 +511,5 @@ if __name__ == "__main__":
     evaluator.save(f"models/evaluator.pt")
     
     
+    
+    #TODO: Remove 100 Cap on taking in real sequences
