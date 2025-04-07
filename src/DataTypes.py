@@ -78,9 +78,7 @@ class Cluster:
     def __init__(
         self,
         real: bool,
-        nucleotides: list[Nucleotide] = [
-            Nucleotide(index=i, type="N") for i in range(5)
-        ],
+        nucleotides: list[Nucleotide] 
         
     ):
         self.real = real

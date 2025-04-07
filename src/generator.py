@@ -226,7 +226,15 @@ class RealGenerator:
 class Evaluator(nn.Module):
     def __init__(self, cluster_size: int):
         self.cluster_size = cluster_size
-        default_cluster = Cluster(real=False)
+        default_nucleotides = [
+            Nucleotide(
+                index=i,
+                type="A",
+                coordinate=Vector(x=0, y=0, z=0),
+            )
+            for i in range(cluster_size)
+        ]
+        default_cluster = Cluster(real=False, nucleotides=default_nucleotides)
         input_length = (
             default_cluster.tensor.shape[0] * default_cluster.tensor.shape[1]
         )  # cluster_size * 8
