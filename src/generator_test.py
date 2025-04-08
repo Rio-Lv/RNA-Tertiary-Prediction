@@ -63,7 +63,7 @@ if __name__ == "__main__":
     real_generator = RealGenerator(cluster_size=cluster_size)
     real_clusters = real_generator.make_clusters(n_clusters=test_size)
     noisy_clusters = real_generator.make_clusters(n_clusters=test_size)
-    k = 4
+    k = 3
     for cluster in noisy_clusters:
         vectors = []
         for _ in range(cluster_size):
@@ -78,7 +78,7 @@ if __name__ == "__main__":
     random.shuffle(all_clusters)
     # load evaluator model
     evaluator = Evaluator(cluster_size=cluster_size)
-    evaluator.load_state_dict(torch.load("models_pretty_good/evaluator.pt"))
+    evaluator.load_state_dict(torch.load("models/evaluator.pt"))
     evaluator.eval()
     n_clusters = len(all_clusters)
     score = 0
