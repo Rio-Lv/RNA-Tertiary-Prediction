@@ -9,7 +9,7 @@ if __name__ == "__main__":
     os.chdir(os.path.dirname(os.path.abspath(__file__)))
     # test accuracy on random clusters
     test_size = 1000
-    cluster_size = 5
+    cluster_size = 4
     
     random_nucleotides = [
         Nucleotide(
@@ -58,12 +58,12 @@ if __name__ == "__main__":
     print("---------- Harder Test ----------")
     
     # Harder Test where you use real clusters + some noise
-    test_size = 1000
-    cluster_size = 5
+    test_size = 200
+    cluster_size = 8
     real_generator = RealGenerator(cluster_size=cluster_size)
     real_clusters = real_generator.make_clusters(n_clusters=test_size)
     noisy_clusters = real_generator.make_clusters(n_clusters=test_size)
-    k = 1
+    k = 0.1
     for cluster in noisy_clusters:
         vectors = []
         for _ in range(cluster_size):
@@ -84,7 +84,7 @@ if __name__ == "__main__":
     score = 0
     for cluster in all_clusters:
         pred = evaluator.eval_cluster(cluster)
-        # print(f"Pred: {pred}, Real: {cluster.real}")
+        print(f"Pred: {pred}, Real: {cluster.real}")
         if pred > 0.5:
             pred = True
         else:

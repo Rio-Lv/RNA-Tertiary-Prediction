@@ -103,10 +103,10 @@ class FakeGenerator(nn.Module):
 
         # Define a convolutional block.
         self.conv_block = nn.Sequential(
-            nn.Conv2d(in_channels=1, out_channels=16, kernel_size=(3, 3), padding=1),
+            nn.Conv2d(in_channels=1, out_channels=32, kernel_size=(3, 3), padding=1),
             nn.LeakyReLU(0.2),
             nn.MaxPool2d(kernel_size=2),
-            nn.Conv2d(in_channels=16, out_channels=32, kernel_size=(3, 3), padding=1),
+            nn.Conv2d(in_channels=32, out_channels=32, kernel_size=(3, 3), padding=1),
             nn.LeakyReLU(0.2),
             nn.MaxPool2d(kernel_size=2),
         )
@@ -221,10 +221,11 @@ class FakeGenerator(nn.Module):
         )
 
         for epoch in range(epochs):
-            early_stop = False
+            epoch_loss = 0.0
+            batch_count = 0
             for i, (inputs, targets) in enumerate(dataloader):
                 optimizer.zero_grad()
-                # Get delta from generator: (batch_size, cluster_size, 3)
+                # Get delta from the generator: (batch_size, cluster_size, 3)
                 delta = self.forward(inputs)
                 # Reshape inputs to (batch_size, cluster_size, 8)
                 inputs_reshaped = inputs.view(-1, self.cluster_size, 8)
@@ -238,19 +239,16 @@ class FakeGenerator(nn.Module):
                 loss = criterion(pred, targets.float())
                 loss.backward()
                 optimizer.step()
-
-                if i % max(1, math.floor(epochs / 20)) == 0:
-                    print(
-                        f"Fake Generator - Epoch {epoch}, Batch {i}, Loss: {loss.item()}"
-                    )
-                if loss.item() < loss_cut_off:
-                    print(
-                        f"Fake Generator - Early stopping at epoch {epoch}, batch {i} with loss {loss.item()}"
-                    )
-                    early_stop = True
-                    break
-            if early_stop:
+                
+                epoch_loss += loss.item()
+                batch_count += 1
+                
+            avg_loss = epoch_loss / batch_count
+            print(f"Fake Generator - Epoch {epoch} Average Loss: {avg_loss:.4f}")
+            if avg_loss < loss_cut_off:
+                print(f"Fake Generator - Early stopping after epoch {epoch} with average loss {avg_loss:.4f}")
                 break
+
 
         print("Fake generator training complete.")
 
@@ -339,22 +337,21 @@ class Evaluator(nn.Module):
         self.lr = lr
         # Convolutional block: treat cluster data as a 2D image with 1 channel.
         self.conv_block = nn.Sequential(
-            nn.Conv2d(in_channels=1, out_channels=16, kernel_size=(3, 3), padding=1),
+            nn.Conv2d(in_channels=1, out_channels=32, kernel_size=(3, 3), padding=1),
             nn.LeakyReLU(0.2),
             nn.MaxPool2d(kernel_size=2),
-            nn.Conv2d(in_channels=16, out_channels=32, kernel_size=(3, 3), padding=1),
+            nn.Conv2d(in_channels=32, out_channels=32, kernel_size=(3, 3), padding=1),
             nn.LeakyReLU(0.2),
             nn.MaxPool2d(kernel_size=2),
         )
         # Use adaptive pooling to force a fixed spatial size (e.g. 4x4)
-        self.adaptive_pool = nn.AdaptiveAvgPool2d((2, 2))
+        self.adaptive_pool = nn.AdaptiveAvgPool2d((4, 4))
         # Fully-connected block: flattened feature vector size will be 32 * 4 * 4 = 512.
         self.fc_block = nn.Sequential(
             nn.Linear(512, 64), 
             nn.LeakyReLU(0.2), 
             nn.Dropout(0.3), 
             nn.Linear(64, 1),
-            nn.Sigmoid(),
         )
 
     def forward(self, x):
@@ -405,25 +402,22 @@ class Evaluator(nn.Module):
         optimizer = optim.Adam(self.parameters(), lr=self.lr)
 
         for epoch in range(epochs):
-            early_stop = False
+            epoch_loss = 0.0
+            batch_count = 0
             for i, (inputs, targets) in enumerate(dataloader):
                 optimizer.zero_grad()
                 outputs = self(inputs)
                 loss = criterion(outputs, targets.float())
                 loss.backward()
                 optimizer.step()
-
-                # Print progress occasionally
-                if i % max(1, math.floor(epochs / 20)) == 0:
-                    print(f"Evaluator - Epoch {epoch}, Batch {i}, Loss: {loss.item()}")
-                # Early stopping if loss is below threshold
-                if loss.item() < loss_cut_off:
-                    print(
-                        f"Evaluator - Early stopping at epoch {epoch}, batch {i} with loss {loss.item()}"
-                    )
-                    early_stop = True
-                    break
-            if early_stop:
+                
+                epoch_loss += loss.item()
+                batch_count += 1
+            
+            avg_loss = epoch_loss / batch_count
+            print(f"Epoch {epoch} average loss: {avg_loss}")
+            if avg_loss < loss_cut_off:
+                print(f"Early stopping after epoch {epoch} with average loss: {avg_loss}")
                 break
 
     def save(self, filename: str):
@@ -439,8 +433,12 @@ class Evaluator(nn.Module):
         """
         # Flatten the cluster tensor and add batch dimension
         x = cluster.tensor.view(1, -1)
-        pred = self(x)
-        return pred.item()
+            # Get the raw logits from the evaluator
+        logits = self(x)
+        # Apply sigmoid to get a probability between 0 and 1
+        prob = torch.sigmoid(logits)
+        # Return the probability (as a float)
+        return prob.item()
 
 
 def generate_clusters_dataset(
@@ -450,24 +448,10 @@ def generate_clusters_dataset(
 
     fake_clusters = fake_generator.make_clusters(n_clusters=n_clusters)
     real_clusters = real_generator.make_clusters(n_clusters=n_clusters)
-    # real_with_noise_clusters = real_generator.make_clusters(n_clusters=n_clusters)
-    # # Add noise to real clusters
-    # for i in range(len(real_with_noise_clusters)):
-    #     # Add noise to the coordinates of the real clusters
-    #     noise = np.random.normal(-3, 3, size=(real_with_noise_clusters[i].cluster_size, 3))
-    #     for j in range(real_with_noise_clusters[i].cluster_size):
-    #         real_with_noise_clusters[i].nucleotides[j].coordinate.x += noise[j][0]
-    #         real_with_noise_clusters[i].nucleotides[j].coordinate.y += noise[j][1]
-    #         real_with_noise_clusters[i].nucleotides[j].coordinate.z += noise[j][2]
-    # # set real with noise to false
-    # for i in range(len(real_with_noise_clusters)):
-    #     real_with_noise_clusters[i].real = False
 
     [print(cluster) for cluster in real_clusters[:2]]
     [print(cluster) for cluster in fake_clusters[:2]]
-    # [print(cluster) for cluster in real_with_noise_clusters[:2]]
 
-    # clusters = real_clusters + fake_clusters + real_with_noise_clusters
     clusters = real_clusters + fake_clusters
     random.shuffle(clusters)
 
@@ -510,23 +494,23 @@ if __name__ == "__main__":
     os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
     # Check Point for Hyperparameters
-    cluster_size = 5
+    cluster_size = 4
     batch_size = 512
-    n_clusters = 1028*2
-    epochs = 100
-    n_rounds = 20
+    n_clusters = 1028
+    epochs = 200
+    n_rounds = 200
     loss_cut_off = 0.01
-    lr = 0.0005  # Can be changed for refinement?
+    lr = 0.001  # Can be changed for refinement?
 
     fake_generator = FakeGenerator(cluster_size=cluster_size, lr=lr)
     real_generator = RealGenerator(cluster_size=cluster_size)
     evaluator = Evaluator(cluster_size=cluster_size, lr=lr)
 
-    # Load Models to continue training
-    if os.path.exists("models/fake_generator.pt"):
-        fake_generator.load_state_dict(torch.load("models/fake_generator.pt"))
-    if os.path.exists("models/evaluator.pt"):
-        evaluator.load_state_dict(torch.load("models/evaluator.pt"))
+    # # --- Load Models to continue training ---
+    # if os.path.exists("models/fake_generator.pt"):
+    #     fake_generator.load_state_dict(torch.load("models/fake_generator.pt"))
+    # if os.path.exists("models/evaluator.pt"):
+    #     evaluator.load_state_dict(torch.load("models/evaluator.pt"))
 
     # ------ One Round of Training ------
     for i in range(n_rounds):
