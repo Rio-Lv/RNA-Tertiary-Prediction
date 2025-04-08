@@ -475,14 +475,14 @@ if __name__ == "__main__":
     n_clusters = 500
     epochs = 100
     n_rounds = 25
-    loss_cut_off = 0.1
+    loss_cut_off = 0.01
 
     fake_generator = FakeGenerator(cluster_size=cluster_size)
     real_generator = RealGenerator(cluster_size=cluster_size)
     evaluator = Evaluator(cluster_size=cluster_size)
     
     
-    # # Load Models to continue training
+    # Load Models to continue training
     # if os.path.exists("models/fake_generator.pt"):
     #     fake_generator.load_state_dict(torch.load("models/fake_generator.pt"))
     # if os.path.exists("models/evaluator.pt"):
