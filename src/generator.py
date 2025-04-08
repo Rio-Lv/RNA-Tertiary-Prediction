@@ -87,6 +87,66 @@ def save_clusters_to_csv(clusters: list[Cluster], filename: str):
     df.to_csv(filename, index=False)
     print(f"Saved {len(df)} rows to {filename}")
 
+class RealGenerator:
+    labels_path = "data/train_labels.csv"
+    sequences_path = "data/train_sequences.csv"
+    labels: pd.DataFrame
+    sequences: pd.DataFrame
+    cluster_size: int
+
+    def __init__(self, cluster_size: int):
+        self.labels = pd.read_csv(self.labels_path).dropna()
+        self.sequences = pd.read_csv(self.sequences_path)
+        self.n_sequences = len(self.sequences)
+        self.cluster_size = cluster_size
+
+    def get_random_sequence(self):
+        n_sequences = len(self.sequences)
+        random_sequence = np.random.randint(0, n_sequences)
+        sequence = self.sequences.iloc[random_sequence]
+        sequence = sequence.values
+        pdb_id = sequence[0]
+        sequence_str = sequence[1]
+        return pdb_id, sequence_str
+
+    def pdb_id_to_nucleotides(self, pdb_id: str):
+        """
+        Convert a PDB ID to a list of nucleotides.
+        """
+        # grab labels where ID contains pdb_id
+        labels = self.labels[self.labels["ID"].str.contains(pdb_id)]
+
+        nucleotides = []
+        # iterate over the labels and create nucleotides
+        for index, row in labels.iterrows():
+            nucleotide = Nucleotide(
+                index=row["resid"],
+                type=row["resname"],
+                coordinate=Vector(
+                    x=row["x_1"],
+                    y=row["y_1"],
+                    z=row["z_1"],
+                ),
+            )
+            nucleotides.append(nucleotide)
+        return nucleotides
+
+    def make_clusters(self, n_clusters: int):
+        clusters = []
+        while len(clusters) < n_clusters:
+            pdb_id, sequence_str = self.get_random_sequence()
+            while len(sequence_str) > 300 or len(sequence_str) < self.cluster_size:
+                pdb_id, sequence_str = self.get_random_sequence()
+            # Lets start with smaller clusters
+
+            nucleotides = self.pdb_id_to_nucleotides(pdb_id)
+            if len(nucleotides) > self.cluster_size:
+                clusters += nucleotides_to_clusters(
+                    nucleotides, real=True, cluster_size=self.cluster_size
+                )
+
+        return clusters[:n_clusters]
+
 
 class FakeGenerator(nn.Module):
     cluster_size: int
@@ -106,7 +166,7 @@ class FakeGenerator(nn.Module):
             nn.Conv2d(in_channels=1, out_channels=16, kernel_size=(3, 3), padding=1),
             nn.LeakyReLU(0.2),
             nn.MaxPool2d(kernel_size=2),
-            nn.Conv2d(in_channels=16, out_channels=16, kernel_size=(3, 3), padding=1),
+            nn.Conv2d(in_channels=16, out_channels=32, kernel_size=(3, 3), padding=1),
             nn.LeakyReLU(0.2),
             nn.MaxPool2d(kernel_size=2),
         )
@@ -115,16 +175,13 @@ class FakeGenerator(nn.Module):
         # For example, regardless of the input spatial dimensions,
         # we output a feature map of size (4,4).
         self.adaptive_pool = nn.AdaptiveAvgPool2d((4, 4))
-        # After conv & pooling, the feature map has shape (batch, 16, 4, 4)
-        # which flattens to 16*4*4 = 256.
+
+        # which flattens to 32*4*4 = 512.
         self.fc_block = nn.Sequential(
-            nn.Linear(256, 64),
+            nn.Linear(512, 64),
             nn.LeakyReLU(0.2),
-            nn.Dropout(0.3),
-            nn.Linear(64, 16),
-            nn.LeakyReLU(0.2),
-            nn.Dropout(0.3),
-            nn.Linear(16, cluster_size * 3),  # One delta (dx,dy,dz) per nucleotide
+            nn.Dropout(0.3),   
+            nn.Linear(64, cluster_size * 3),  # One delta (dx,dy,dz) per nucleotide
         )
 
     def forward(self, x):
@@ -193,6 +250,7 @@ class FakeGenerator(nn.Module):
         for cluster in clusters:
             updated_clusters.append(self.update_cluster(cluster))
         return updated_clusters
+
 
     def train_model(
         self,
@@ -263,65 +321,6 @@ class FakeGenerator(nn.Module):
         print(f"Saved generator model to {filename}")
 
 
-class RealGenerator:
-    labels_path = "data/train_labels.csv"
-    sequences_path = "data/train_sequences.csv"
-    labels: pd.DataFrame
-    sequences: pd.DataFrame
-    cluster_size: int
-
-    def __init__(self, cluster_size: int):
-        self.labels = pd.read_csv(self.labels_path).dropna()
-        self.sequences = pd.read_csv(self.sequences_path)
-        self.n_sequences = len(self.sequences)
-        self.cluster_size = cluster_size
-
-    def get_random_sequence(self):
-        n_sequences = len(self.sequences)
-        random_sequence = np.random.randint(0, n_sequences)
-        sequence = self.sequences.iloc[random_sequence]
-        sequence = sequence.values
-        pdb_id = sequence[0]
-        sequence_str = sequence[1]
-        return pdb_id, sequence_str
-
-    def pdb_id_to_nucleotides(self, pdb_id: str):
-        """
-        Convert a PDB ID to a list of nucleotides.
-        """
-        # grab labels where ID contains pdb_id
-        labels = self.labels[self.labels["ID"].str.contains(pdb_id)]
-
-        nucleotides = []
-        # iterate over the labels and create nucleotides
-        for index, row in labels.iterrows():
-            nucleotide = Nucleotide(
-                index=row["resid"],
-                type=row["resname"],
-                coordinate=Vector(
-                    x=row["x_1"],
-                    y=row["y_1"],
-                    z=row["z_1"],
-                ),
-            )
-            nucleotides.append(nucleotide)
-        return nucleotides
-
-    def make_clusters(self, n_clusters: int):
-        clusters = []
-        while len(clusters) < n_clusters:
-            pdb_id, sequence_str = self.get_random_sequence()
-            while len(sequence_str) > 300 or len(sequence_str) < self.cluster_size:
-                pdb_id, sequence_str = self.get_random_sequence()
-            # Lets start with smaller clusters
-
-            nucleotides = self.pdb_id_to_nucleotides(pdb_id)
-            if len(nucleotides) > self.cluster_size:
-                clusters += nucleotides_to_clusters(
-                    nucleotides, real=True, cluster_size=self.cluster_size
-                )
-
-        return clusters[:n_clusters]
 
 
 class Evaluator(nn.Module):
@@ -354,10 +353,7 @@ class Evaluator(nn.Module):
             nn.Linear(256, 64), 
             nn.LeakyReLU(0.2), 
             nn.Dropout(0.3), 
-            nn.Linear(64, 16), 
-            nn.LeakyReLU(0.2), 
-            nn.Dropout(0.3), 
-            nn.Linear(16, 1),
+            nn.Linear(64, 1),
         )
 
     def forward(self, x):
@@ -501,22 +497,24 @@ if __name__ == "__main__":
 
     # Check Point for Hyperparameters
     cluster_size = 4
-    batch_size = 1028
-    n_clusters = 1028
+    batch_size = 256
+    n_clusters = 256*10
     epochs = 200
-    n_rounds = 200
-    loss_cut_off = 0.3
-    lr = 0.0002  # Can be changed for refinement?
+    n_rounds = 20
+    loss_cut_off = 0.01
+    lr = 0.005  # Can be changed for refinement?
 
     fake_generator = FakeGenerator(cluster_size=cluster_size, lr=lr)
     real_generator = RealGenerator(cluster_size=cluster_size)
     evaluator = Evaluator(cluster_size=cluster_size, lr=lr)
 
     # # --- Load Models to continue training ---
-    if os.path.exists("models/fake_generator.pt"):
-        fake_generator.load_state_dict(torch.load("models/fake_generator.pt"))
-    if os.path.exists("models/evaluator.pt"):
-        evaluator.load_state_dict(torch.load("models/evaluator.pt"))
+    # if os.path.exists("models/fake_generator.pt"):
+    #     print("Loading fake generator model...")
+    #     fake_generator.load_state_dict(torch.load("models/fake_generator.pt"))
+    # if os.path.exists("models/evaluator.pt"):
+    #     print("Loading evaluator model...")
+    #     evaluator.load_state_dict(torch.load("models/evaluator.pt"))
 
     # ------ One Round of Training ------
     for i in range(n_rounds):

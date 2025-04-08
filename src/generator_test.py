@@ -8,7 +8,7 @@ if __name__ == "__main__":
     # set file dir as current dir
     os.chdir(os.path.dirname(os.path.abspath(__file__)))
     # test accuracy on random clusters
-    test_size = 1000
+    test_size = 2000
     cluster_size = 4
     
     random_nucleotides = [
