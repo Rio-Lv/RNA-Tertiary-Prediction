@@ -63,13 +63,16 @@ if __name__ == "__main__":
     real_generator = RealGenerator(cluster_size=cluster_size)
     real_clusters = real_generator.make_clusters(n_clusters=test_size)
     noisy_clusters = real_generator.make_clusters(n_clusters=test_size)
-    k = 10
+    k = 4
     for cluster in noisy_clusters:
+        vectors = []
+        for _ in range(cluster_size):
+            dx = random.uniform(-k, k)
+            dy = random.uniform(-k, k)
+            dz = random.uniform(-k, k)
+            vectors.append(Vector(x=dx, y=dy, z=dz))
+        cluster.update(vectors)
         cluster.real = False    
-        for nucleotide in cluster.nucleotides:
-            nucleotide.coordinate.x += random.uniform(-k, k)
-            nucleotide.coordinate.y += random.uniform(-k, k)
-            nucleotide.coordinate.z += random.uniform(-k, k)
 
     all_clusters = real_clusters + noisy_clusters
     random.shuffle(all_clusters)
