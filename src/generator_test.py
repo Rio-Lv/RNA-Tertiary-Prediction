@@ -30,7 +30,7 @@ if __name__ == "__main__":
     real_generator = RealGenerator(cluster_size=cluster_size)
     real_clusters = real_generator.make_clusters(n_clusters=test_size)
     all_clusters = random_clusters + real_clusters
-    random.shuffle(all_clusters)
+    # random.shuffle(all_clusters)
     
     # load evaluator model
     evaluator = Evaluator(cluster_size=cluster_size)
@@ -58,12 +58,12 @@ if __name__ == "__main__":
     print("---------- Harder Test ----------")
     
     # Harder Test where you use real clusters + some noise
-    test_size = 200
+    test_size = 2000
     cluster_size = 8
     real_generator = RealGenerator(cluster_size=cluster_size)
     real_clusters = real_generator.make_clusters(n_clusters=test_size)
     noisy_clusters = real_generator.make_clusters(n_clusters=test_size)
-    k = 0.1
+    k = 2
     for cluster in noisy_clusters:
         vectors = []
         for _ in range(cluster_size):
@@ -75,7 +75,7 @@ if __name__ == "__main__":
         cluster.real = False    
 
     all_clusters = real_clusters + noisy_clusters
-    random.shuffle(all_clusters)
+    # random.shuffle(all_clusters)
     # load evaluator model
     evaluator = Evaluator(cluster_size=cluster_size)
     evaluator.load_state_dict(torch.load("models/evaluator.pt"))
@@ -84,7 +84,8 @@ if __name__ == "__main__":
     score = 0
     for cluster in all_clusters:
         pred = evaluator.eval_cluster(cluster)
-        print(f"Pred: {pred}, Real: {cluster.real}")
+        
+        # print(f"Pred: {pred}, Real: {cluster.real}")
         if pred > 0.5:
             pred = True
         else:

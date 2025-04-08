@@ -103,10 +103,10 @@ class FakeGenerator(nn.Module):
 
         # Define a convolutional block.
         self.conv_block = nn.Sequential(
-            nn.Conv2d(in_channels=1, out_channels=32, kernel_size=(3, 3), padding=1),
+            nn.Conv2d(in_channels=1, out_channels=16, kernel_size=(3, 3), padding=1),
             nn.LeakyReLU(0.2),
             nn.MaxPool2d(kernel_size=2),
-            nn.Conv2d(in_channels=32, out_channels=32, kernel_size=(3, 3), padding=1),
+            nn.Conv2d(in_channels=16, out_channels=16, kernel_size=(3, 3), padding=1),
             nn.LeakyReLU(0.2),
             nn.MaxPool2d(kernel_size=2),
         )
@@ -115,13 +115,16 @@ class FakeGenerator(nn.Module):
         # For example, regardless of the input spatial dimensions,
         # we output a feature map of size (4,4).
         self.adaptive_pool = nn.AdaptiveAvgPool2d((4, 4))
-        # After conv & pooling, the feature map has shape (batch, 32, 4, 4)
-        # which flattens to 32*4*4 = 512.
+        # After conv & pooling, the feature map has shape (batch, 16, 4, 4)
+        # which flattens to 16*4*4 = 256.
         self.fc_block = nn.Sequential(
-            nn.Linear(512, 64),
+            nn.Linear(256, 64),
             nn.LeakyReLU(0.2),
             nn.Dropout(0.3),
-            nn.Linear(64, cluster_size * 3),  # One delta (dx,dy,dz) per nucleotide
+            nn.Linear(64, 16),
+            nn.LeakyReLU(0.2),
+            nn.Dropout(0.3),
+            nn.Linear(16, cluster_size * 3),  # One delta (dx,dy,dz) per nucleotide
         )
 
     def forward(self, x):
@@ -337,21 +340,24 @@ class Evaluator(nn.Module):
         self.lr = lr
         # Convolutional block: treat cluster data as a 2D image with 1 channel.
         self.conv_block = nn.Sequential(
-            nn.Conv2d(in_channels=1, out_channels=32, kernel_size=(3, 3), padding=1),
+            nn.Conv2d(in_channels=1, out_channels=16, kernel_size=(3, 3), padding=1),
             nn.LeakyReLU(0.2),
             nn.MaxPool2d(kernel_size=2),
-            nn.Conv2d(in_channels=32, out_channels=32, kernel_size=(3, 3), padding=1),
+            nn.Conv2d(in_channels=16, out_channels=16, kernel_size=(3, 3), padding=1),
             nn.LeakyReLU(0.2),
             nn.MaxPool2d(kernel_size=2),
         )
         # Use adaptive pooling to force a fixed spatial size (e.g. 4x4)
         self.adaptive_pool = nn.AdaptiveAvgPool2d((4, 4))
-        # Fully-connected block: flattened feature vector size will be 32 * 4 * 4 = 512.
+        # Fully-connected block: flattened feature vector size will be 16 * 4 * 4 = 512.
         self.fc_block = nn.Sequential(
-            nn.Linear(512, 64), 
+            nn.Linear(256, 64), 
             nn.LeakyReLU(0.2), 
             nn.Dropout(0.3), 
-            nn.Linear(64, 1),
+            nn.Linear(64, 16), 
+            nn.LeakyReLU(0.2), 
+            nn.Dropout(0.3), 
+            nn.Linear(16, 1),
         )
 
     def forward(self, x):
@@ -415,9 +421,9 @@ class Evaluator(nn.Module):
                 batch_count += 1
             
             avg_loss = epoch_loss / batch_count
-            print(f"Epoch {epoch} average loss: {avg_loss}")
+            print(f"Evaluator - Epoch {epoch} average loss: {avg_loss}")
             if avg_loss < loss_cut_off:
-                print(f"Early stopping after epoch {epoch} with average loss: {avg_loss}")
+                print(f"Evaluator - Early stopping after epoch {epoch} with average loss: {avg_loss}")
                 break
 
     def save(self, filename: str):
@@ -495,22 +501,22 @@ if __name__ == "__main__":
 
     # Check Point for Hyperparameters
     cluster_size = 4
-    batch_size = 512
+    batch_size = 1028
     n_clusters = 1028
     epochs = 200
     n_rounds = 200
-    loss_cut_off = 0.01
-    lr = 0.001  # Can be changed for refinement?
+    loss_cut_off = 0.3
+    lr = 0.0002  # Can be changed for refinement?
 
     fake_generator = FakeGenerator(cluster_size=cluster_size, lr=lr)
     real_generator = RealGenerator(cluster_size=cluster_size)
     evaluator = Evaluator(cluster_size=cluster_size, lr=lr)
 
     # # --- Load Models to continue training ---
-    # if os.path.exists("models/fake_generator.pt"):
-    #     fake_generator.load_state_dict(torch.load("models/fake_generator.pt"))
-    # if os.path.exists("models/evaluator.pt"):
-    #     evaluator.load_state_dict(torch.load("models/evaluator.pt"))
+    if os.path.exists("models/fake_generator.pt"):
+        fake_generator.load_state_dict(torch.load("models/fake_generator.pt"))
+    if os.path.exists("models/evaluator.pt"):
+        evaluator.load_state_dict(torch.load("models/evaluator.pt"))
 
     # ------ One Round of Training ------
     for i in range(n_rounds):
@@ -525,10 +531,10 @@ if __name__ == "__main__":
             batch_size=batch_size,
             loss_cut_off=loss_cut_off,
         )
-        if i % 5 == 0:
-            # Save models
-            fake_generator.save(f"models/fake_generator.pt")
-            evaluator.save(f"models/evaluator.pt")
+   
+        # Save models
+        fake_generator.save(f"models/fake_generator.pt")
+        evaluator.save(f"models/evaluator.pt")
 
     fake_generator.save(f"models/fake_generator.pt")
     evaluator.save(f"models/evaluator.pt")
