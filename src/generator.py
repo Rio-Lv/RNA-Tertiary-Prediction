@@ -347,10 +347,14 @@ class Evaluator(nn.Module):
             nn.MaxPool2d(kernel_size=2),
         )
         # Use adaptive pooling to force a fixed spatial size (e.g. 4x4)
-        self.adaptive_pool = nn.AdaptiveAvgPool2d((4, 4))
+        self.adaptive_pool = nn.AdaptiveAvgPool2d((2, 2))
         # Fully-connected block: flattened feature vector size will be 32 * 4 * 4 = 512.
         self.fc_block = nn.Sequential(
-            nn.Linear(512, 64), nn.LeakyReLU(0.2), nn.Dropout(0.3), nn.Linear(64, 1)
+            nn.Linear(512, 64), 
+            nn.LeakyReLU(0.2), 
+            nn.Dropout(0.3), 
+            nn.Linear(64, 1),
+            nn.Sigmoid(),
         )
 
     def forward(self, x):

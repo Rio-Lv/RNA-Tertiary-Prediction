@@ -63,7 +63,7 @@ if __name__ == "__main__":
     real_generator = RealGenerator(cluster_size=cluster_size)
     real_clusters = real_generator.make_clusters(n_clusters=test_size)
     noisy_clusters = real_generator.make_clusters(n_clusters=test_size)
-    k = 3
+    k = 1
     for cluster in noisy_clusters:
         vectors = []
         for _ in range(cluster_size):
