@@ -178,9 +178,12 @@ class FakeGenerator(nn.Module):
 
         # which flattens to 32*4*4 = 512.
         self.fc_block = nn.Sequential(
-            nn.Linear(512, 64),
+            nn.Linear(512, 128),
             nn.LeakyReLU(0.2),
-            nn.Dropout(0.3),   
+            nn.Dropout(0.3),  
+            nn.Linear(128, 64),
+            nn.LeakyReLU(0.2),
+            nn.Dropout(0.1), 
             nn.Linear(64, cluster_size * 3),  # One delta (dx,dy,dz) per nucleotide
         )
 
