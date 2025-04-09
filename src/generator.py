@@ -183,7 +183,10 @@ class FakeGenerator(nn.Module):
             nn.Dropout(0.3),  
             nn.Linear(128, 64),
             nn.LeakyReLU(0.2),
-            nn.Dropout(0.1), 
+            nn.Dropout(0.2), 
+            nn.Linear(64, 64),
+            nn.LeakyReLU(0.2),
+            nn.Dropout(0.1),
             nn.Linear(64, cluster_size * 3),  # One delta (dx,dy,dz) per nucleotide
         )
 
@@ -503,7 +506,7 @@ if __name__ == "__main__":
     batch_size = 256
     n_clusters = 256*10
     epochs = 200
-    n_rounds = 20
+    n_rounds = 10
     loss_cut_off = 0.01
     lr = 0.005  # Can be changed for refinement?
 
