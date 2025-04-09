@@ -60,6 +60,28 @@ def nucleotides_to_clusters(
         )
         for row_indices in nearest_indices
     ]
+    
+def create_random_nucleotides(n_clusters):
+    """
+    Create a random set of nucleotides.
+    """
+    nucleotides = []
+    x, y, z = 0, 0, 0
+    for i in range(n_clusters):
+        magnitude = np.random.rand() * 6.5
+        rx = np.random.rand() * 2 * np.pi
+        ry = np.random.rand() * 2 * np.pi
+        rz = np.random.rand() * 2 * np.pi
+        x += float(magnitude * np.cos(rx))
+        y += float(magnitude * np.sin(ry))
+        z += float(magnitude * np.sin(rz))
+        random_type = np.random.choice(["A", "C", "G", "U", "N"])
+        coordinate = Vector(x=x, y=y, z=z)
+        nucleotides.append(
+            Nucleotide(index=i, type=random_type, coordinate=coordinate)
+        )
+    return nucleotides
+
 
 
 def save_clusters_to_csv(clusters: list[Cluster], filename: str):
@@ -86,6 +108,7 @@ def save_clusters_to_csv(clusters: list[Cluster], filename: str):
     )
     df.to_csv(filename, index=False)
     print(f"Saved {len(df)} rows to {filename}")
+
 
 class RealGenerator:
     labels_path = "data/train_labels.csv"
@@ -131,7 +154,7 @@ class RealGenerator:
             nucleotides.append(nucleotide)
         return nucleotides
 
-    def make_clusters(self, n_clusters: int):
+    def make_clusters(self, n_clusters: int, noise: float = None):
         clusters = []
         while len(clusters) < n_clusters:
             pdb_id, sequence_str = self.get_random_sequence()
@@ -144,7 +167,16 @@ class RealGenerator:
                 clusters += nucleotides_to_clusters(
                     nucleotides, real=True, cluster_size=self.cluster_size
                 )
-
+        if noise:
+            for cluster in clusters:
+                vectors = []
+                for i in range(self.cluster_size):
+                    dx = np.random.uniform(-noise, noise)
+                    dy = np.random.uniform(-noise, noise)
+                    dz = np.random.uniform(-noise, noise)
+                    vectors.append(Vector(x=dx, y=dy, z=dz))
+                cluster.update(vectors)
+                cluster.real = False
         return clusters[:n_clusters]
 
 
@@ -180,15 +212,16 @@ class FakeGenerator(nn.Module):
         self.fc_block = nn.Sequential(
             nn.Linear(512, 128),
             nn.LeakyReLU(0.2),
-            nn.Dropout(0.3),  
+            nn.Dropout(0.3),
             nn.Linear(128, 64),
             nn.LeakyReLU(0.2),
-            nn.Dropout(0.2), 
+            nn.Dropout(0.2),
             nn.Linear(64, 64),
             nn.LeakyReLU(0.2),
             nn.Dropout(0.1),
             nn.Linear(64, cluster_size * 3),  # One delta (dx,dy,dz) per nucleotide
         )
+    
 
     def forward(self, x):
         """
@@ -227,36 +260,38 @@ class FakeGenerator(nn.Module):
         cluster.update(vectors)
         return cluster
 
-    def make_clusters(self, n_clusters: int):
+
+    def make_clusters(
+        self, n_clusters: int, denoise: bool = False, noise: float = None
+    ):
         """
         Generate a set of clusters using a simple cumulative translation.
-        Each nucleotide’s coordinate is generated based on a random magnitude and rotation.
+        Each nucleotides coordinate is generated based on a random magnitude and rotation.
         Then, clusters are created based on the nearest neighbors and updated using this generator.
+
+        or
+
+        Get Real Clusters, add noise then update them to remove the noise.
         """
-        nucleotides = []
-        x, y, z = 0, 0, 0
-        for i in range(n_clusters):
-            magnitude = np.random.rand() * 6.5
-            rx = np.random.rand() * 2 * np.pi
-            ry = np.random.rand() * 2 * np.pi
-            rz = np.random.rand() * 2 * np.pi
-            x += float(magnitude * np.cos(rx))
-            y += float(magnitude * np.sin(ry))
-            z += float(magnitude * np.sin(rz))
-            random_type = np.random.choice(["A", "C", "G", "U", "N"])
-            coordinate = Vector(x=x, y=y, z=z)
-            nucleotides.append(
-                Nucleotide(index=i, type=random_type, coordinate=coordinate)
+        if not denoise:
+            nucleotides = create_random_nucleotides(n_clusters)
+      
+            clusters = nucleotides_to_clusters(
+                nucleotides, real=False, cluster_size=self.cluster_size
             )
-
-        clusters = nucleotides_to_clusters(
-            nucleotides, real=False, cluster_size=self.cluster_size
-        )
-        updated_clusters = []
-        for cluster in clusters:
-            updated_clusters.append(self.update_cluster(cluster))
-        return updated_clusters
-
+            updated_clusters = []
+            for cluster in clusters:
+                updated_clusters.append(self.update_cluster(cluster))
+            return updated_clusters
+        else:
+            # Generate real clusters
+            real_generator = RealGenerator(cluster_size=self.cluster_size)
+            clusters = real_generator.make_clusters(n_clusters=n_clusters, noise=noise)
+            # Update them to remove the noise
+            updated_clusters = []
+            for cluster in clusters:
+                updated_clusters.append(self.update_cluster(cluster))
+            return updated_clusters
 
     def train_model(
         self,
@@ -306,16 +341,17 @@ class FakeGenerator(nn.Module):
                 loss = criterion(pred, targets.float())
                 loss.backward()
                 optimizer.step()
-                
+
                 epoch_loss += loss.item()
                 batch_count += 1
-                
+
             avg_loss = epoch_loss / batch_count
             print(f"Fake Generator - Epoch {epoch} Average Loss: {avg_loss:.4f}")
             if avg_loss < loss_cut_off:
-                print(f"Fake Generator - Early stopping after epoch {epoch} with average loss {avg_loss:.4f}")
+                print(
+                    f"Fake Generator - Early stopping after epoch {epoch} with average loss {avg_loss:.4f}"
+                )
                 break
-
 
         print("Fake generator training complete.")
 
@@ -325,8 +361,6 @@ class FakeGenerator(nn.Module):
         """
         torch.save(self.state_dict(), filename)
         print(f"Saved generator model to {filename}")
-
-
 
 
 class Evaluator(nn.Module):
@@ -356,9 +390,9 @@ class Evaluator(nn.Module):
         self.adaptive_pool = nn.AdaptiveAvgPool2d((4, 4))
         # Fully-connected block: flattened feature vector size will be 16 * 4 * 4 = 512.
         self.fc_block = nn.Sequential(
-            nn.Linear(256, 64), 
-            nn.LeakyReLU(0.2), 
-            nn.Dropout(0.3), 
+            nn.Linear(256, 64),
+            nn.LeakyReLU(0.2),
+            nn.Dropout(0.3),
             nn.Linear(64, 1),
         )
 
@@ -418,14 +452,16 @@ class Evaluator(nn.Module):
                 loss = criterion(outputs, targets.float())
                 loss.backward()
                 optimizer.step()
-                
+
                 epoch_loss += loss.item()
                 batch_count += 1
-            
+
             avg_loss = epoch_loss / batch_count
             print(f"Evaluator - Epoch {epoch} average loss: {avg_loss}")
             if avg_loss < loss_cut_off:
-                print(f"Evaluator - Early stopping after epoch {epoch} with average loss: {avg_loss}")
+                print(
+                    f"Evaluator - Early stopping after epoch {epoch} with average loss: {avg_loss}"
+                )
                 break
 
     def save(self, filename: str):
@@ -441,7 +477,7 @@ class Evaluator(nn.Module):
         """
         # Flatten the cluster tensor and add batch dimension
         x = cluster.tensor.view(1, -1)
-            # Get the raw logits from the evaluator
+        # Get the raw logits from the evaluator
         logits = self(x)
         # Apply sigmoid to get a probability between 0 and 1
         prob = torch.sigmoid(logits)
@@ -454,13 +490,57 @@ def generate_clusters_dataset(
 ):
     start_time = time.time()
 
-    fake_clusters = fake_generator.make_clusters(n_clusters=n_clusters)
-    real_clusters = real_generator.make_clusters(n_clusters=n_clusters)
+    # -------- Form Of Real Clusters --------
+    real_clusters = real_generator.make_clusters(n_clusters=n_clusters * 6)
 
-    [print(cluster) for cluster in real_clusters[:2]]
-    [print(cluster) for cluster in fake_clusters[:2]]
+    # -------- Forms Of Fake Clusters --------
+    #
+    fake_clusters = fake_generator.make_clusters(n_clusters=n_clusters)
+
+    real_clusters_noisy_big = real_generator.make_clusters(
+        n_clusters=n_clusters, noise=32
+    )
+    real_clusters_noisy_medium = real_generator.make_clusters(
+        n_clusters=n_clusters, noise=8
+    )
+    real_clusters_noisy_small = real_generator.make_clusters(
+        n_clusters=n_clusters, noise=1
+    )
+    fake_clusters_denoise_large = fake_generator.make_clusters(
+        n_clusters=n_clusters, denoise=True, noise=32
+    )
+    fake_clusters_denoise_medium = fake_generator.make_clusters(
+        n_clusters=n_clusters, denoise=True, noise=8
+    )
+    fake_clusters_denoise_small = fake_generator.make_clusters(
+        n_clusters=n_clusters, denoise=True, noise=1
+    )
+
+    print("------ Real Clusters ( from database )------")
+    [print(cluster) for cluster in real_clusters[:1]]
+    print("------ Fake Clusters ( from random and update ) ------")
+    [print(cluster) for cluster in fake_clusters[:1]]
+    print("------ Real Clusters ( from database + noise big ) ------")
+    [print(cluster) for cluster in real_clusters_noisy_big[:1]]
+    print("------ Real Clusters ( from database + noise medium ) ------")
+    [print(cluster) for cluster in real_clusters_noisy_medium[:1]]
+    print("------ Real Clusters ( from database + noise small ) ------")
+    [print(cluster) for cluster in real_clusters_noisy_small[:1]]
+    print("------ Fake Clusters ( from database + update + noise big ) ------")
+    [print(cluster) for cluster in fake_clusters_denoise_large[:1]]
+    print("------ Fake Clusters ( from database + update + noise medium ) ------")
+    [print(cluster) for cluster in fake_clusters_denoise_medium[:1]]
+    print("------ Fake Clusters ( from database + update + noise small ) ------")
+    [print(cluster) for cluster in fake_clusters_denoise_small[:1]]
 
     clusters = real_clusters + fake_clusters
+    clusters += real_clusters_noisy_big
+    clusters += real_clusters_noisy_medium
+    clusters += real_clusters_noisy_small
+    clusters += fake_clusters_denoise_large
+    clusters += fake_clusters_denoise_medium
+    clusters += fake_clusters_denoise_small
+
     random.shuffle(clusters)
 
     print("--- %s seconds ---" % (time.time() - start_time))
@@ -502,14 +582,13 @@ if __name__ == "__main__":
     os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
     # Check Point for Hyperparameters
-    cluster_size = 4
+    cluster_size = 5
     batch_size = 256
-    n_clusters = 256*10
+    n_clusters = 256  # will be like x8 for different cluster generators
     epochs = 200
-    n_rounds = 10
+    n_rounds = 100
     loss_cut_off = 0.01
     lr = 0.005  # Can be changed for refinement?
-
     fake_generator = FakeGenerator(cluster_size=cluster_size, lr=lr)
     real_generator = RealGenerator(cluster_size=cluster_size)
     evaluator = Evaluator(cluster_size=cluster_size, lr=lr)
@@ -535,7 +614,7 @@ if __name__ == "__main__":
             batch_size=batch_size,
             loss_cut_off=loss_cut_off,
         )
-   
+
         # Save models
         fake_generator.save(f"models/fake_generator.pt")
         evaluator.save(f"models/evaluator.pt")
