@@ -6,7 +6,7 @@ import os
 
 # ========== TESTING PARAMETERS ==========
 TEST_SIZE = 3000
-CLUSTER_SIZE = 7
+CLUSTER_SIZE = 5
 K = 2 # noise range Angstrom
 
 if __name__ == "__main__":

@@ -20,19 +20,19 @@ else:
     
 # ---- HYPERPARAMS ----
 DROPOUT = 0.1
-CLUSTER_SIZE = 7
+CLUSTER_SIZE = 5
 BATCH_SIZE = 256
 N_CLUSTERS = 128 # will be like x8 for different cluster generators
 EPOCHS = 10
 N_ROUNDS = 200
 LOSS_CUT_OFF = 0.01
-LR = 0.001  # Can be changed for refinement?
-N_ITER = 10 # number of iterations to apply delta update
+LR = 0.005  # Can be changed for refinement?
+N_ITER = 4 # number of iterations to apply delta update
 LOAD_PRETRAINED = False
-NOISE_L = 24
-NOISE_M = 8
+NOISE_L = 8
+NOISE_M = 4
 NOISE_S = 1
-
+ROUNDS_PER_DATA_RESET = 5
 # ---- Helper functions ----
 import numpy as np
 
@@ -261,7 +261,7 @@ class Adjuster(nn.Module):
         """
         n_iter = self.n_iter
         # Start with the initial inputs.
-        input_tensor = cluster.tensor.view(1,-1)  # shape: ( 1, cluster_size * 8)
+        input_tensor = cluster.get_tensor().view(1,-1)  # shape: ( 1, cluster_size * 8)
         updated_inputs = input_tensor.clone()  # shape: ( 1, cluster_size * 8)
         # Apply the update repeatedly.
         for _ in range(n_iter):
@@ -665,7 +665,7 @@ if __name__ == "__main__":
             batch_size=BATCH_SIZE,
             loss_cut_off=LOSS_CUT_OFF,
         )
-        if i % 5 == 0:
+        if i % ROUNDS_PER_DATA_RESET == 0:
             clusters = generate_clusters_dataset(
                 adjuster=adjuster,
                 real_generator=real_generator,
