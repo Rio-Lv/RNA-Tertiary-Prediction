@@ -19,7 +19,7 @@ else:
     print("MPS device not found.")
     
 # ---- HYPERPARAMS ----
-DROPOUT = 0.0001
+DROPOUT = 0.01
 
 # ---- Helper functions ----
 import numpy as np
@@ -63,11 +63,14 @@ def nucleotides_to_clusters(
         for row_indices in nearest_indices
     ]
 
+# ---- Create random nucleotides, random relative to last points ----
 
-def create_random_nucleotides(n_clusters):
+def create_random_nucleotides(n_clusters, sequence:str = None):
     """
     Create a random set of nucleotides.
     """
+    if sequence:
+        assert len(sequence) == n_clusters, "Sequence length must match number of clusters."
     nucleotides = []
     x, y, z = 0, 0, 0
     for i in range(n_clusters):
@@ -78,9 +81,14 @@ def create_random_nucleotides(n_clusters):
         x += float(magnitude * np.cos(rx))
         y += float(magnitude * np.sin(ry))
         z += float(magnitude * np.sin(rz))
-        random_type = np.random.choice(["A", "C", "G", "U", "N"])
+        res_type = None
+        if sequence:
+            res_type = sequence[i]
+        else:
+            random_type = np.random.choice(["A", "C", "G", "U", "N"])
+            res_type = random_type
         coordinate = Vector(x=x, y=y, z=z)
-        nucleotides.append(Nucleotide(index=i, type=random_type, coordinate=coordinate))
+        nucleotides.append(Nucleotide(index=i, type=res_type, coordinate=coordinate))
     return nucleotides
 
 
@@ -154,7 +162,7 @@ class RealGenerator:
             nucleotides.append(nucleotide)
         return nucleotides
 
-    def make_clusters(self, n_clusters: int, noise: float = None):
+    def make_clusters(self, n_clusters: int, noise: float = None)-> list[Cluster]:
         clusters = []
         while len(clusters) < n_clusters:
             pdb_id, sequence_str = self.get_random_sequence()
@@ -180,7 +188,7 @@ class RealGenerator:
         return clusters[:n_clusters]
 
 
-class FakeGenerator(nn.Module):
+class Adjuster(nn.Module):
     cluster_size: int
     lr: float
     n_iter: int
@@ -234,7 +242,7 @@ class FakeGenerator(nn.Module):
         x = x.view(batch_size, self.cluster_size, 3)  # Reshape to (batch_size, cluster_size, 3)
         return x
 
-    def update_cluster(self, cluster: Cluster):
+    def update_cluster(self, cluster: Cluster)-> Cluster:
         """
         Inference method: given one Cluster, apply the generator’s delta
         to update its nucleotide coordinates.
@@ -259,7 +267,7 @@ class FakeGenerator(nn.Module):
 
     def make_clusters(
         self, n_clusters: int, denoise: bool = False, noise: float = None
-    ):
+    )-> list[Cluster]:
         """
         Generate a set of clusters using a simple cumulative translation.
         Each nucleotides coordinate is generated based on a random magnitude and rotation.
@@ -499,7 +507,7 @@ class Evaluator(nn.Module):
 
 
 def generate_clusters_dataset(
-    fake_generator: FakeGenerator, real_generator: RealGenerator, n_clusters: int
+    fake_generator: Adjuster, real_generator: RealGenerator, n_clusters: int
 ):
     start_time = time.time()
 
@@ -573,7 +581,7 @@ if __name__ == "__main__":
     n_rounds = 100
     loss_cut_off = 0.01
     lr = 0.0001  # Can be changed for refinement?
-    fake_generator = FakeGenerator(cluster_size=cluster_size, lr=lr, n_iter=5)
+    fake_generator = Adjuster(cluster_size=cluster_size, lr=lr, n_iter=5)
     real_generator = RealGenerator(cluster_size=cluster_size)
     evaluator = Evaluator(cluster_size=cluster_size, lr=lr)
 

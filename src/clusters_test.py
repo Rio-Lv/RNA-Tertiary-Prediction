@@ -1,4 +1,4 @@
-from generator import Evaluator, nucleotides_to_clusters,create_random_nucleotides, RealGenerator
+from clusters import Evaluator, nucleotides_to_clusters,create_random_nucleotides, RealGenerator
 from DataTypes import Cluster, Nucleotide, Vector
 import random
 import torch
