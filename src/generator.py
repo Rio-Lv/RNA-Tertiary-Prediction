@@ -183,11 +183,13 @@ class RealGenerator:
 class FakeGenerator(nn.Module):
     cluster_size: int
     lr: float
+    n_iter:int
 
-    def __init__(self, cluster_size: int, lr: float = 0.001):
+    def __init__(self, cluster_size: int, lr: float = 0.001, n_iter:int=4):
         super().__init__()
         self.cluster_size = cluster_size
         self.lr = lr
+        self.n_iter = n_iter
 
         # The input will be reshaped to (batch_size, 1, cluster_size, 8)
         # Our goal is to output a delta vector per nucleotide,
@@ -245,19 +247,23 @@ class FakeGenerator(nn.Module):
         """
         Inference method: given one Cluster, apply the generator’s delta
         to update its nucleotide coordinates.
+        apply delta over a few steps eg. 4
         """
-        # Ensure the cluster.tensor is flattened as expected.
-        delta = self.forward(cluster.tensor.view(1, -1))  # (1, cluster_size, 3)
-        delta = delta.view(self.cluster_size, 3)  # (cluster_size, 3)
-        vectors = []
-        for i in range(self.cluster_size):
-            vector = Vector(
-                x=delta[i][0].item(),
-                y=delta[i][1].item(),
-                z=delta[i][2].item(),
-            )
-            vectors.append(vector)
-        cluster.update(vectors)
+        n_iter = self.n_iter
+        for _ in range(n_iter):
+            # Ensure the cluster.tensor is flattened as expected.
+            delta = self.forward(cluster.tensor.view(1, -1))  # (1, cluster_size, 3)
+            delta *= 1/n_iter  # Scale the delta by the number of iterations
+            delta = delta.view(self.cluster_size, 3)  # (cluster_size, 3)
+            vectors = []
+            for i in range(self.cluster_size):
+                vector = Vector(
+                    x=delta[i][0].item(),
+                    y=delta[i][1].item(),
+                    z=delta[i][2].item(),
+                )
+                vectors.append(vector)
+            cluster.update(vectors)
         return cluster
 
 
@@ -322,28 +328,44 @@ class FakeGenerator(nn.Module):
             dataset, batch_size=batch_size, shuffle=True
         )
 
+        n_iter = self.n_iter  # number of iterations to apply delta update
+
         for epoch in range(epochs):
             epoch_loss = 0.0
             batch_count = 0
             for i, (inputs, targets) in enumerate(dataloader):
                 optimizer.zero_grad()
-                # Get delta from the generator: (batch_size, cluster_size, 3)
-                delta = self.forward(inputs)
-                # Reshape inputs to (batch_size, cluster_size, 8)
-                inputs_reshaped = inputs.view(-1, self.cluster_size, 8)
-                updated = inputs_reshaped.clone()
-                # Update only the coordinate columns (first 3 columns) with the computed delta.
-                updated[:, :, :3] = updated[:, :, :3] + delta
-                # Flatten updated tensor back to (batch_size, 8 * cluster_size)
-                updated_flat = updated.view(-1, self.cluster_size * 8)
-                # Evaluate the updated clusters using the evaluator.
-                pred = evaluator(updated_flat)
+                
+                # Start with the initial inputs.
+                updated_inputs = inputs.clone()  # shape: (batch_size, cluster_size * 8)
+                
+                # Apply the update repeatedly.
+                for _ in range(n_iter):
+                    # Compute the delta from the generator
+                    # delta shape: (batch_size, cluster_size, 3)
+                    delta = self.forward(updated_inputs)
+                    
+                    # Reshape updated_inputs to (batch_size, cluster_size, 8)
+                    inputs_reshaped = updated_inputs.view(-1, self.cluster_size, 8)
+                    
+                    # Create an updated version (copy) of the reshaped tensor
+                    updated = inputs_reshaped.clone()
+                    
+                    # Add the computed delta to the coordinate columns (first 3 columns)
+                    updated[:, :, :3] = updated[:, :, :3] + delta
+                    
+                    # Flatten back to (batch_size, cluster_size * 8) for the next iteration
+                    updated_inputs = updated.view(-1, self.cluster_size * 8)
+                
+                # Evaluate the final updated inputs after all iterations
+                pred = evaluator(updated_inputs)
                 loss = criterion(pred, targets.float())
                 loss.backward()
                 optimizer.step()
 
                 epoch_loss += loss.item()
                 batch_count += 1
+
 
             avg_loss = epoch_loss / batch_count
             print(f"Fake Generator - Epoch {epoch} Average Loss: {avg_loss:.4f}")
@@ -548,33 +570,9 @@ def generate_clusters_dataset(
     return clusters
 
 
-def train_round(
-    fake_generator: FakeGenerator,
-    real_generator: RealGenerator,
-    evaluator: Evaluator,
-    n_clusters: int,
-    epochs: int,
-    batch_size: int,
-    loss_cut_off: float,
-):
-    # Generate clusters Initially
-    clusters = generate_clusters_dataset(
-        fake_generator=fake_generator,
-        real_generator=real_generator,
-        n_clusters=n_clusters,
-    )
-    # Train evaluator
-    evaluator.train_model(
-        clusters, epochs=epochs, batch_size=batch_size, loss_cut_off=loss_cut_off
-    )
-    # Train fake generator
-    fake_generator.train_model(
-        clusters=clusters,
-        evaluator=evaluator,
-        epochs=epochs,
-        batch_size=batch_size,
-        loss_cut_off=loss_cut_off,
-    )
+
+   
+
 
 
 if __name__ == "__main__":
@@ -585,7 +583,7 @@ if __name__ == "__main__":
     cluster_size = 5
     batch_size = 256
     n_clusters = 256  # will be like x8 for different cluster generators
-    epochs = 200
+    epochs = 10
     n_rounds = 100
     loss_cut_off = 0.01
     lr = 0.005  # Can be changed for refinement?
@@ -600,20 +598,37 @@ if __name__ == "__main__":
     # if os.path.exists("models/evaluator.pt"):
     #     print("Loading evaluator model...")
     #     evaluator.load_state_dict(torch.load("models/evaluator.pt"))
+    
+    # ------ Init Dataset ------
+     # Generate clusters Initially
+    clusters = generate_clusters_dataset(
+        fake_generator=fake_generator,
+        real_generator=real_generator,
+        n_clusters=n_clusters,
+    )
 
     # ------ One Round of Training ------
     for i in range(n_rounds):
         print(f" --- Round {i} --- ")
-
-        train_round(
-            fake_generator=fake_generator,
-            real_generator=real_generator,
+        
+        # Train evaluator
+        evaluator.train_model(
+            clusters, epochs=epochs, batch_size=batch_size, loss_cut_off=loss_cut_off
+        )
+        # Train fake generator
+        fake_generator.train_model(
+            clusters=clusters,
             evaluator=evaluator,
-            n_clusters=n_clusters,
             epochs=epochs,
             batch_size=batch_size,
             loss_cut_off=loss_cut_off,
         )
+        if i % 5 == 0:
+            clusters = generate_clusters_dataset(
+                fake_generator=fake_generator,
+                real_generator=real_generator,
+                n_clusters=n_clusters,
+            )
 
         # Save models
         fake_generator.save(f"models/fake_generator.pt")
