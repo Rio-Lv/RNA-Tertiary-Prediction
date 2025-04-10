@@ -1,4 +1,4 @@
-from generator import Evaluator, nucleotides_to_clusters, RealGenerator
+from generator import Evaluator, nucleotides_to_clusters,create_random_nucleotides, RealGenerator
 from DataTypes import Cluster, Nucleotide, Vector
 import random
 import torch
@@ -7,22 +7,15 @@ import os
 if __name__ == "__main__":
     # set file dir as current dir
     os.chdir(os.path.dirname(os.path.abspath(__file__)))
-    # test accuracy on random clusters
-    test_size = 2000
-    cluster_size = 4
     
-    random_nucleotides = [
-        Nucleotide(
-            index=i,
-            type=random.choice(["A", "C", "G", "U", "N"]),
-            coordinate=Vector(
-                x=random.uniform(-10, 10),
-                y=random.uniform(-10, 10),
-                z=random.uniform(-10, 10),
-            ),
-        )
-        for i in range(test_size)
-    ]
+    # ------ PRIMARY PARAMS ------
+    test_size = 2000
+    cluster_size = 5
+    
+    # ------ RANDOM STRANDS TEST  ------
+    
+    # test accuracy on random clusters
+    random_nucleotides = create_random_nucleotides(test_size)
     
     random_clusters = nucleotides_to_clusters(
         random_nucleotides, real=False, cluster_size=cluster_size
@@ -55,11 +48,9 @@ if __name__ == "__main__":
     print(f"Number of clusters: {n_clusters}")
     print(f"Accuracy: {accuracy:.2f}")
     
-    print("---------- Harder Test ----------")
     
-    # Harder Test where you use real clusters + some noise
-    test_size = 2000
-    cluster_size = 8
+    # ------ REAL STRAND + NOISE TEST ------
+    print("---------- Harder Test ----------")
     real_generator = RealGenerator(cluster_size=cluster_size)
     real_clusters = real_generator.make_clusters(n_clusters=test_size)
     noisy_clusters = real_generator.make_clusters(n_clusters=test_size)

@@ -60,7 +60,8 @@ def nucleotides_to_clusters(
         )
         for row_indices in nearest_indices
     ]
-    
+
+
 def create_random_nucleotides(n_clusters):
     """
     Create a random set of nucleotides.
@@ -77,11 +78,8 @@ def create_random_nucleotides(n_clusters):
         z += float(magnitude * np.sin(rz))
         random_type = np.random.choice(["A", "C", "G", "U", "N"])
         coordinate = Vector(x=x, y=y, z=z)
-        nucleotides.append(
-            Nucleotide(index=i, type=random_type, coordinate=coordinate)
-        )
+        nucleotides.append(Nucleotide(index=i, type=random_type, coordinate=coordinate))
     return nucleotides
-
 
 
 def save_clusters_to_csv(clusters: list[Cluster], filename: str):
@@ -183,51 +181,44 @@ class RealGenerator:
 class FakeGenerator(nn.Module):
     cluster_size: int
     lr: float
-    n_iter:int
+    n_iter: int
 
-    def __init__(self, cluster_size: int, lr: float = 0.001, n_iter:int=4):
+    def __init__(self, cluster_size: int, lr: float = 0.001, n_iter: int = 4):
         super().__init__()
         self.cluster_size = cluster_size
         self.lr = lr
         self.n_iter = n_iter
 
-        # The input will be reshaped to (batch_size, 1, cluster_size, 8)
-        # Our goal is to output a delta vector per nucleotide,
-        # i.e. an output shape of (batch_size, cluster_size, 3)
 
-        # Define a convolutional block.
+# Convolutional block with reduced channels, 2x2 kernels, and added padding.
         self.conv_block = nn.Sequential(
-            nn.Conv2d(in_channels=1, out_channels=16, kernel_size=(3, 3), padding=1),
+            # Padding=1 prevents the spatial dimensions from collapsing too quickly.
+            nn.Conv2d(in_channels=1, out_channels=4, kernel_size=(2, 2), padding=1),
             nn.LeakyReLU(0.2),
             nn.MaxPool2d(kernel_size=2),
-            nn.Conv2d(in_channels=16, out_channels=32, kernel_size=(3, 3), padding=1),
+            nn.Conv2d(in_channels=4, out_channels=8, kernel_size=(2, 2), padding=1),
             nn.LeakyReLU(0.2),
             nn.MaxPool2d(kernel_size=2),
         )
+        
+        # Adaptive pooling to force a fixed output size.
+        self.adaptive_pool = nn.AdaptiveAvgPool2d((4, 4))  # Expected output: (batch, 8, 4, 4)
 
-        # Use adaptive pooling to force a fixed output size.
-        # For example, regardless of the input spatial dimensions,
-        # we output a feature map of size (4,4).
-        self.adaptive_pool = nn.AdaptiveAvgPool2d((4, 4))
-
-        # which flattens to 32*4*4 = 512.
+        # Fully connected block with reduced hidden dimensions.
         self.fc_block = nn.Sequential(
-            nn.Linear(512, 128),
+            nn.Linear(8 * 4 * 4, 64),  # 8*4*4=128 features.
             nn.LeakyReLU(0.2),
             nn.Dropout(0.3),
-            nn.Linear(128, 64),
+            nn.Linear(64, 32),
             nn.LeakyReLU(0.2),
             nn.Dropout(0.2),
-            nn.Linear(64, 64),
-            nn.LeakyReLU(0.2),
-            nn.Dropout(0.1),
-            nn.Linear(64, cluster_size * 3),  # One delta (dx,dy,dz) per nucleotide
+            nn.Linear(32, cluster_size * 3),  # Final mapping.
         )
-    
+
+
 
     def forward(self, x):
         """
-        Forward pass of the fake generator.
         x: Tensor of shape (batch_size, 8 * cluster_size)
         Returns: Tensor of shape (batch_size, cluster_size, 3)
         """
@@ -235,12 +226,10 @@ class FakeGenerator(nn.Module):
         # Reshape the flattened vector to a 4D tensor: (batch_size, 1, cluster_size, 8)
         x = x.view(batch_size, 1, self.cluster_size, 8)
         x = self.conv_block(x)
-        x = self.adaptive_pool(x)  # Now x has shape (batch_size, 32, 4, 4)
-        x = x.view(batch_size, -1)  # Flatten to (batch_size, 512)
-        x = self.fc_block(x)  # (batch_size, cluster_size * 3)
-        x = x.view(
-            batch_size, self.cluster_size, 3
-        )  # Reshape to (batch_size, cluster_size, 3)
+        x = self.adaptive_pool(x)  # Fixed shape: (batch_size, 8, 4, 4)
+        x = x.view(batch_size, -1)  # Flatten to (batch_size, 128)
+        x = self.fc_block(x)  # Output shape: (batch_size, cluster_size * 3)
+        x = x.view(batch_size, self.cluster_size, 3)  # Reshape to (batch_size, cluster_size, 3)
         return x
 
     def update_cluster(self, cluster: Cluster):
@@ -253,7 +242,7 @@ class FakeGenerator(nn.Module):
         for _ in range(n_iter):
             # Ensure the cluster.tensor is flattened as expected.
             delta = self.forward(cluster.tensor.view(1, -1))  # (1, cluster_size, 3)
-            delta *= 1/n_iter  # Scale the delta by the number of iterations
+            delta *= 1 / n_iter  # Scale the delta by the number of iterations
             delta = delta.view(self.cluster_size, 3)  # (cluster_size, 3)
             vectors = []
             for i in range(self.cluster_size):
@@ -265,7 +254,6 @@ class FakeGenerator(nn.Module):
                 vectors.append(vector)
             cluster.update(vectors)
         return cluster
-
 
     def make_clusters(
         self, n_clusters: int, denoise: bool = False, noise: float = None
@@ -281,7 +269,7 @@ class FakeGenerator(nn.Module):
         """
         if not denoise:
             nucleotides = create_random_nucleotides(n_clusters)
-      
+
             clusters = nucleotides_to_clusters(
                 nucleotides, real=False, cluster_size=self.cluster_size
             )
@@ -335,28 +323,28 @@ class FakeGenerator(nn.Module):
             batch_count = 0
             for i, (inputs, targets) in enumerate(dataloader):
                 optimizer.zero_grad()
-                
+
                 # Start with the initial inputs.
                 updated_inputs = inputs.clone()  # shape: (batch_size, cluster_size * 8)
-                
+
                 # Apply the update repeatedly.
                 for _ in range(n_iter):
                     # Compute the delta from the generator
                     # delta shape: (batch_size, cluster_size, 3)
                     delta = self.forward(updated_inputs)
-                    
+
                     # Reshape updated_inputs to (batch_size, cluster_size, 8)
                     inputs_reshaped = updated_inputs.view(-1, self.cluster_size, 8)
-                    
+
                     # Create an updated version (copy) of the reshaped tensor
                     updated = inputs_reshaped.clone()
-                    
+
                     # Add the computed delta to the coordinate columns (first 3 columns)
                     updated[:, :, :3] = updated[:, :, :3] + delta
-                    
+
                     # Flatten back to (batch_size, cluster_size * 8) for the next iteration
                     updated_inputs = updated.view(-1, self.cluster_size * 8)
-                
+
                 # Evaluate the final updated inputs after all iterations
                 pred = evaluator(updated_inputs)
                 loss = criterion(pred, targets.float())
@@ -366,9 +354,8 @@ class FakeGenerator(nn.Module):
                 epoch_loss += loss.item()
                 batch_count += 1
 
-
             avg_loss = epoch_loss / batch_count
-            print(f"Fake Generator - Epoch {epoch} Average Loss: {avg_loss:.4f}")
+            print(f"Fake Generator - Epoch {epoch} - batch: {batch_count} - Average Loss: {avg_loss:.4f}")
             if avg_loss < loss_cut_off:
                 print(
                     f"Fake Generator - Early stopping after epoch {epoch} with average loss {avg_loss:.4f}"
@@ -479,7 +466,9 @@ class Evaluator(nn.Module):
                 batch_count += 1
 
             avg_loss = epoch_loss / batch_count
-            print(f"Evaluator - Epoch {epoch} average loss: {avg_loss}")
+            print(
+                f"Evaluator - Epoch {epoch} - batch: {batch_count} - average loss: {avg_loss}"
+            )
             if avg_loss < loss_cut_off:
                 print(
                     f"Evaluator - Early stopping after epoch {epoch} with average loss: {avg_loss}"
@@ -570,11 +559,6 @@ def generate_clusters_dataset(
     return clusters
 
 
-
-   
-
-
-
 if __name__ == "__main__":
     # set file dir as current dir
     os.chdir(os.path.dirname(os.path.abspath(__file__)))
@@ -582,12 +566,12 @@ if __name__ == "__main__":
     # Check Point for Hyperparameters
     cluster_size = 5
     batch_size = 256
-    n_clusters = 256  # will be like x8 for different cluster generators
+    n_clusters = 128 # will be like x8 for different cluster generators
     epochs = 10
     n_rounds = 100
     loss_cut_off = 0.01
     lr = 0.005  # Can be changed for refinement?
-    fake_generator = FakeGenerator(cluster_size=cluster_size, lr=lr)
+    fake_generator = FakeGenerator(cluster_size=cluster_size, lr=lr, n_iter=5)
     real_generator = RealGenerator(cluster_size=cluster_size)
     evaluator = Evaluator(cluster_size=cluster_size, lr=lr)
 
@@ -598,9 +582,9 @@ if __name__ == "__main__":
     # if os.path.exists("models/evaluator.pt"):
     #     print("Loading evaluator model...")
     #     evaluator.load_state_dict(torch.load("models/evaluator.pt"))
-    
+
     # ------ Init Dataset ------
-     # Generate clusters Initially
+    # Generate clusters Initially
     clusters = generate_clusters_dataset(
         fake_generator=fake_generator,
         real_generator=real_generator,
@@ -610,7 +594,7 @@ if __name__ == "__main__":
     # ------ One Round of Training ------
     for i in range(n_rounds):
         print(f" --- Round {i} --- ")
-        
+
         # Train evaluator
         evaluator.train_model(
             clusters, epochs=epochs, batch_size=batch_size, loss_cut_off=loss_cut_off
@@ -630,9 +614,9 @@ if __name__ == "__main__":
                 n_clusters=n_clusters,
             )
 
-        # Save models
-        fake_generator.save(f"models/fake_generator.pt")
-        evaluator.save(f"models/evaluator.pt")
+            # Save models
+            fake_generator.save(f"models/fake_generator.pt")
+            evaluator.save(f"models/evaluator.pt")
 
     fake_generator.save(f"models/fake_generator.pt")
     evaluator.save(f"models/evaluator.pt")
