@@ -230,7 +230,7 @@ class Adjuster(nn.Module):
     def forward(self, x):
         """
         x: Tensor of shape (batch_size, 8 * cluster_size)
-        Returns: Tensor of shape (batch_size, cluster_size, 3)
+        Returns: Tensor of shape (batch_size, cluster_size, 3) Delta vectors.
         """
         batch_size = x.size(0)
         # Reshape the flattened vector to a 4D tensor: (batch_size, 1, cluster_size, 8)
@@ -310,9 +310,9 @@ class Adjuster(nn.Module):
         prediction approaches 1 (i.e. the evaluator believes the cluster is real).
         This method uses a differentiable update mechanism on the underlying cluster tensor.
         """
+        self.train()  # Generator in train mode.
         # Use only clusters labeled as fake.
         clusters = [c for c in clusters if not c.real]
-        self.train()  # Generator in train mode.
         evaluator.eval()  # Evaluator in eval (frozen) mode.
         optimizer = optim.Adam(self.parameters(), lr=self.lr)
         criterion = nn.BCEWithLogitsLoss()
@@ -380,6 +380,17 @@ class Adjuster(nn.Module):
         """
         torch.save(self.state_dict(), filename)
         print(f"Saved generator model to {filename}")
+        
+    def load(self, filename: str):
+        """
+        Load the generator model from a file.
+        """
+        if os.path.exists(filename):
+            self.load_state_dict(torch.load(filename))
+            print(f"Loaded generator model from {filename}")
+        else:
+            print(f"File {filename} does not exist. Cannot load model.")
+        return self
 
 
 class Evaluator(nn.Module):
@@ -484,14 +495,6 @@ class Evaluator(nn.Module):
                     f"Evaluator - Early stopping after epoch {epoch} with average loss: {avg_loss}"
                 )
                 break
-
-    def save(self, filename: str):
-        """
-        Save the evaluator model.
-        """
-        torch.save(self.state_dict(), filename)
-        print(f"Saved evaluator model to {filename}")
-
     def eval_cluster(self, cluster: Cluster):
         """
         Evaluate a single cluster.
@@ -505,6 +508,26 @@ class Evaluator(nn.Module):
         # Return the probability (as a float)
         return prob.item()
 
+    def save(self, filename: str):
+        """
+        Save the evaluator model.
+        """
+        torch.save(self.state_dict(), filename)
+        print(f"Saved evaluator model to {filename}")
+        
+    def load(self, filename: str):
+        """
+        Load the evaluator model from a file.
+        """
+        if os.path.exists(filename):
+            self.load_state_dict(torch.load(filename))
+            print(f"Loaded evaluator model from {filename}")
+        else:
+            print(f"File {filename} does not exist. Cannot load model.")
+        return self
+
+
+
 
 def generate_clusters_dataset(
     adjuster: Adjuster, real_generator: RealGenerator, n_clusters: int
@@ -513,51 +536,59 @@ def generate_clusters_dataset(
 
     # -------- Form Of Real Clusters --------
     real_clusters = real_generator.make_clusters(n_clusters=n_clusters * 6)
-
-    # -------- Forms Of Fake Clusters --------
-    #
-    fake_clusters = adjuster.make_clusters(n_clusters=n_clusters)
-
-    real_clusters_noisy_big = real_generator.make_clusters(
-        n_clusters=n_clusters, noise=32
-    )
-    real_clusters_noisy_medium = real_generator.make_clusters(
-        n_clusters=n_clusters, noise=8
-    )
+    noiseL = 2
+    noiseM = 1
+    noiseS = 0.2
     real_clusters_noisy_small = real_generator.make_clusters(
         n_clusters=n_clusters, noise=1
     )
-    fake_clusters_denoise_large = adjuster.make_clusters(
-        n_clusters=n_clusters, denoise=True, noise=32
+    real_clusters_noisy_medium = real_generator.make_clusters(
+        n_clusters=n_clusters, noise=4
+    )
+    real_clusters_noisy_big = real_generator.make_clusters(
+        n_clusters=n_clusters, noise=8
+    )
+    # -------- Forms Of Fake Clusters --------
+    
+    fake_clusters = adjuster.make_clusters(n_clusters=n_clusters)
+
+    fake_clusters_denoise_small = adjuster.make_clusters(
+        n_clusters=n_clusters, denoise=True, noise=noiseS
     )
     fake_clusters_denoise_medium = adjuster.make_clusters(
-        n_clusters=n_clusters, denoise=True, noise=8
+        n_clusters=n_clusters, denoise=True, noise=noiseM
     )
-    fake_clusters_denoise_small = adjuster.make_clusters(
-        n_clusters=n_clusters, denoise=True, noise=1
+    fake_clusters_denoise_large = adjuster.make_clusters(
+        n_clusters=n_clusters, denoise=True, noise=noiseL
     )
 
+    # Real as Base
     print("------ Real Clusters ( from database )------")
     [print(cluster) for cluster in real_clusters[:1]]
-    print("------ Fake Clusters ( from random and update ) ------")
-    [print(cluster) for cluster in fake_clusters[:1]]
-    print("------ Real Clusters ( from database + noise big ) ------")
-    [print(cluster) for cluster in real_clusters_noisy_big[:1]]
-    print("------ Real Clusters ( from database + noise medium ) ------")
-    [print(cluster) for cluster in real_clusters_noisy_medium[:1]]
-    print("------ Real Clusters ( from database + noise small ) ------")
+    print(f"------ Real Clusters ( from database + noise ({noiseS}) ) ------")
     [print(cluster) for cluster in real_clusters_noisy_small[:1]]
-    print("------ Fake Clusters ( from database + update + noise big ) ------")
-    [print(cluster) for cluster in fake_clusters_denoise_large[:1]]
-    print("------ Fake Clusters ( from database + update + noise medium ) ------")
-    [print(cluster) for cluster in fake_clusters_denoise_medium[:1]]
-    print("------ Fake Clusters ( from database + update + noise small ) ------")
+    print(f"------ Real Clusters ( from database + noise ({noiseM}) ) ------")
+    [print(cluster) for cluster in real_clusters_noisy_medium[:1]]
+    print(f"------ Real Clusters ( from database + noise ({noiseL}) ) ------")
+    [print(cluster) for cluster in real_clusters_noisy_big[:1]]
+    # Fake as Base
+    print("------ Fake Clusters ( from random + adjust ) ------")
+    [print(cluster) for cluster in fake_clusters[:1]]
+    print(f"------ Fake Clusters ( from database + noise ({noiseS}) + adjust ) ------")
     [print(cluster) for cluster in fake_clusters_denoise_small[:1]]
+    print(f"------ Fake Clusters ( from database + noise ({noiseM}) + adjust) ------")
+    [print(cluster) for cluster in fake_clusters_denoise_medium[:1]]
+    print(f"------ Fake Clusters ( from database + noise ({noiseL}) + adjust ) ------")
+    [print(cluster) for cluster in fake_clusters_denoise_large[:1]]
 
+    # -------- Combine Clusters --------
+    # primary set
     clusters = real_clusters + fake_clusters
+    # add noise to real clusters
     clusters += real_clusters_noisy_big
     clusters += real_clusters_noisy_medium
     clusters += real_clusters_noisy_small
+    # add noise to fake clusters
     clusters += fake_clusters_denoise_large
     clusters += fake_clusters_denoise_medium
     clusters += fake_clusters_denoise_small
@@ -586,13 +617,9 @@ if __name__ == "__main__":
     evaluator = Evaluator(cluster_size=cluster_size, lr=lr)
 
     # --- Load Models to continue training ---
-    if os.path.exists("models/adjuster.pt"):
-        print("Loading fake generator model...")
-        adjuster.load_state_dict(torch.load("models/adjuster.pt"))
-    if os.path.exists("models/evaluator.pt"):
-        print("Loading evaluator model...")
-        evaluator.load_state_dict(torch.load("models/evaluator.pt"))
-
+    adjuster.load("models/adjuster.pt")
+    evaluator.load("models/evaluator.pt")
+    
     # ------ Init Dataset ------
     # Generate clusters Initially
     clusters = generate_clusters_dataset(

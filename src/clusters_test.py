@@ -4,29 +4,29 @@ import random
 import torch
 import os
 
+# ========== TESTING PARAMETERS ==========
+TEST_SIZE = 3000
+CLUSTER_SIZE = 5
+
 if __name__ == "__main__":
     # set file dir as current dir
     os.chdir(os.path.dirname(os.path.abspath(__file__)))
     
-    # ------ PRIMARY PARAMS ------
-    test_size = 3000
-    cluster_size = 5
-    
     # ------ RANDOM STRANDS TEST  ------
     
     # test accuracy on random clusters
-    random_nucleotides = create_random_nucleotides(test_size)
+    random_nucleotides = create_random_nucleotides(TEST_SIZE)
     
     random_clusters = nucleotides_to_clusters(
-        random_nucleotides, real=False, cluster_size=cluster_size
+        random_nucleotides, real=False, cluster_size=CLUSTER_SIZE
     )
-    real_generator = RealGenerator(cluster_size=cluster_size)
-    real_clusters = real_generator.make_clusters(n_clusters=test_size)
+    real_generator = RealGenerator(cluster_size=CLUSTER_SIZE)
+    real_clusters = real_generator.make_clusters(n_clusters=TEST_SIZE)
     all_clusters = random_clusters + real_clusters
     # random.shuffle(all_clusters)
     
     # load evaluator model
-    evaluator = Evaluator(cluster_size=cluster_size)
+    evaluator = Evaluator(cluster_size=CLUSTER_SIZE)
     evaluator.load_state_dict(torch.load("models/evaluator.pt"))
     evaluator.eval()
     
@@ -51,13 +51,13 @@ if __name__ == "__main__":
     
     # ------ REAL STRAND + NOISE TEST ------
     print("---------- Harder Test ----------")
-    real_generator = RealGenerator(cluster_size=cluster_size)
-    real_clusters = real_generator.make_clusters(n_clusters=test_size)
-    noisy_clusters = real_generator.make_clusters(n_clusters=test_size)
+    real_generator = RealGenerator(cluster_size=CLUSTER_SIZE)
+    real_clusters = real_generator.make_clusters(n_clusters=TEST_SIZE)
+    noisy_clusters = real_generator.make_clusters(n_clusters=TEST_SIZE)
     k = 2
     for cluster in noisy_clusters:
         vectors = []
-        for _ in range(cluster_size):
+        for _ in range(CLUSTER_SIZE):
             dx = random.uniform(-k, k)
             dy = random.uniform(-k, k)
             dz = random.uniform(-k, k)
@@ -68,7 +68,7 @@ if __name__ == "__main__":
     all_clusters = real_clusters + noisy_clusters
     # random.shuffle(all_clusters)
     # load evaluator model
-    evaluator = Evaluator(cluster_size=cluster_size)
+    evaluator = Evaluator(cluster_size=CLUSTER_SIZE)
     evaluator.load_state_dict(torch.load("models/evaluator.pt"))
     evaluator.eval()
     n_clusters = len(all_clusters)
