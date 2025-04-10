@@ -6,7 +6,7 @@ import os
 
 # ========== TESTING PARAMETERS ==========
 TEST_SIZE = 3000
-CLUSTER_SIZE = 5
+CLUSTER_SIZE = 7
 
 if __name__ == "__main__":
     # set file dir as current dir

@@ -20,6 +20,15 @@ else:
     
 # ---- HYPERPARAMS ----
 DROPOUT = 0.01
+CLUSTER_SIZE = 7
+BATCH_SIZE = 256
+N_CLUSTERS = 128 # will be like x8 for different cluster generators
+EPOCHS = 10
+N_ROUNDS = 100
+LOSS_CUT_OFF = 0.01
+LR = 0.001  # Can be changed for refinement?
+N_ITER = 5 # number of iterations to apply delta update
+LOAD_PRETRAINED = False
 
 # ---- Helper functions ----
 import numpy as np
@@ -604,51 +613,45 @@ if __name__ == "__main__":
     # set file dir as current dir
     os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
-    # Check Point for Hyperparameters
-    cluster_size = 5
-    batch_size = 256
-    n_clusters = 128 # will be like x8 for different cluster generators
-    epochs = 10
-    n_rounds = 100
-    loss_cut_off = 0.01
-    lr = 0.001  # Can be changed for refinement?
-    adjuster = Adjuster(cluster_size=cluster_size, lr=lr, n_iter=5)
-    real_generator = RealGenerator(cluster_size=cluster_size)
-    evaluator = Evaluator(cluster_size=cluster_size, lr=lr)
+
+    adjuster = Adjuster(cluster_size=CLUSTER_SIZE, lr=LR, n_iter=N_ITER)
+    real_generator = RealGenerator(cluster_size=CLUSTER_SIZE)
+    evaluator = Evaluator(cluster_size=CLUSTER_SIZE, lr=LR)
 
     # --- Load Models to continue training ---
-    adjuster.load("models/adjuster.pt")
-    evaluator.load("models/evaluator.pt")
+    if LOAD_PRETRAINED:
+        adjuster.load("models/adjuster.pt")
+        evaluator.load("models/evaluator.pt")
     
     # ------ Init Dataset ------
     # Generate clusters Initially
     clusters = generate_clusters_dataset(
         adjuster=adjuster,
         real_generator=real_generator,
-        n_clusters=n_clusters,
+        n_clusters=N_CLUSTERS,
     )
 
     # ------ One Round of Training ------
-    for i in range(n_rounds):
+    for i in range(N_ROUNDS):
         print(f" --- Round {i} --- ")
 
         # Train evaluator
         evaluator.train_model(
-            clusters, epochs=epochs, batch_size=batch_size, loss_cut_off=loss_cut_off
+            clusters, epochs=EPOCHS, batch_size=BATCH_SIZE, loss_cut_off=LOSS_CUT_OFF
         )
         # Train fake generator
         adjuster.train_model(
             clusters=clusters,
             evaluator=evaluator,
-            epochs=epochs,
-            batch_size=batch_size,
-            loss_cut_off=loss_cut_off,
+            epochs=EPOCHS,
+            batch_size=BATCH_SIZE,
+            loss_cut_off=LOSS_CUT_OFF,
         )
         if i % 5 == 0:
             clusters = generate_clusters_dataset(
                 adjuster=adjuster,
                 real_generator=real_generator,
-                n_clusters=n_clusters,
+                n_clusters=N_CLUSTERS,
             )
 
             # Save models
