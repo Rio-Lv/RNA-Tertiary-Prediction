@@ -19,7 +19,7 @@ else:
     print("MPS device not found.")
     
 # ---- HYPERPARAMS ----
-DROPOUT = 0.01
+DROPOUT = 0.0001
 
 # ---- Helper functions ----
 import numpy as np
@@ -572,7 +572,7 @@ if __name__ == "__main__":
     epochs = 10
     n_rounds = 100
     loss_cut_off = 0.01
-    lr = 0.0005  # Can be changed for refinement?
+    lr = 0.0001  # Can be changed for refinement?
     fake_generator = FakeGenerator(cluster_size=cluster_size, lr=lr, n_iter=5)
     real_generator = RealGenerator(cluster_size=cluster_size)
     evaluator = Evaluator(cluster_size=cluster_size, lr=lr)
