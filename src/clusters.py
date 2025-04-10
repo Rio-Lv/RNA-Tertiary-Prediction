@@ -24,13 +24,13 @@ CLUSTER_SIZE = 7
 BATCH_SIZE = 256
 N_CLUSTERS = 128 # will be like x8 for different cluster generators
 EPOCHS = 10
-N_ROUNDS = 300
+N_ROUNDS = 200
 LOSS_CUT_OFF = 0.01
 LR = 0.001  # Can be changed for refinement?
 N_ITER = 10 # number of iterations to apply delta update
 LOAD_PRETRAINED = False
-NOISE_L = 7
-NOISE_M = 3
+NOISE_L = 24
+NOISE_M = 8
 NOISE_S = 1
 
 # ---- Helper functions ----
@@ -260,20 +260,38 @@ class Adjuster(nn.Module):
         apply delta over a few steps eg. 4
         """
         n_iter = self.n_iter
+        # Start with the initial inputs.
+        input_tensor = cluster.tensor.view(1,-1)  # shape: ( 1, cluster_size * 8)
+        updated_inputs = input_tensor.clone()  # shape: ( 1, cluster_size * 8)
+        # Apply the update repeatedly.
         for _ in range(n_iter):
-            # Ensure the cluster.tensor is flattened as expected.
-            delta = self.forward(cluster.tensor.view(1, -1))  # (1, cluster_size, 3)
-            delta *= 1 / n_iter  # Scale the delta by the number of iterations
-            delta = delta.view(self.cluster_size, 3)  # (cluster_size, 3)
-            vectors = []
-            for i in range(self.cluster_size):
-                vector = Vector(
-                    x=delta[i][0].item(),
-                    y=delta[i][1].item(),
-                    z=delta[i][2].item(),
-                )
-                vectors.append(vector)
-            cluster.update(vectors)
+            # Compute the delta from the generator
+            # delta shape: (1, cluster_size, 3)
+            delta = self.forward(updated_inputs)
+
+            # Reshape updated_inputs to (1, cluster_size, 8)
+            inputs_reshaped = updated_inputs.view(-1, self.cluster_size, 8)
+
+            # Create an updated version (copy) of the reshaped tensor
+            updated = inputs_reshaped.clone()
+
+            # Add the computed delta to the coordinate columns (first 3 columns)
+            updated[:, :, :3] = updated[:, :, :3] + delta
+
+            # Flatten back to (1, cluster_size * 8) for the next iteration
+            updated_inputs = updated.view(-1, self.cluster_size * 8)
+        # Reshape the updated inputs back to the cluster tensor shape
+        updated_tensor = updated_inputs.view(-1, 8)
+        # Grab deltas as Vectors
+        deltas = []
+        for i in range(self.cluster_size):
+            dx = updated_tensor[i][0]
+            dy = updated_tensor[i][1]
+            dz = updated_tensor[i][2]
+            deltas.append(Vector(x=dx, y=dy, z=dz))
+        # Update the cluster with the new coordinates
+        cluster.update(deltas)
+        
         return cluster
 
     def make_clusters(
@@ -585,7 +603,7 @@ def generate_clusters_dataset(
     [print(cluster) for cluster in fake_clusters[:1]]
     print(f"------ Fake Clusters ( from database + noise ({NOISE_S}) + adjust ) ------")
     [print(cluster) for cluster in fake_clusters_denoise_small[:1]]
-    print(f"------ Fake Clusters ( from database + noise ({NOISE_M}) + adjust) ------")
+    print(f"------ Fake Clusters ( from database + noise ({NOISE_M}) + adjust ) ------")
     [print(cluster) for cluster in fake_clusters_denoise_medium[:1]]
     print(f"------ Fake Clusters ( from database + noise ({NOISE_L}) + adjust ) ------")
     [print(cluster) for cluster in fake_clusters_denoise_large[:1]]
