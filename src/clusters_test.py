@@ -7,6 +7,7 @@ import os
 # ========== TESTING PARAMETERS ==========
 TEST_SIZE = 3000
 CLUSTER_SIZE = 7
+K = 2 # noise range Angstrom
 
 if __name__ == "__main__":
     # set file dir as current dir
@@ -54,13 +55,13 @@ if __name__ == "__main__":
     real_generator = RealGenerator(cluster_size=CLUSTER_SIZE)
     real_clusters = real_generator.make_clusters(n_clusters=TEST_SIZE)
     noisy_clusters = real_generator.make_clusters(n_clusters=TEST_SIZE)
-    k = 2
+
     for cluster in noisy_clusters:
         vectors = []
         for _ in range(CLUSTER_SIZE):
-            dx = random.uniform(-k, k)
-            dy = random.uniform(-k, k)
-            dz = random.uniform(-k, k)
+            dx = random.uniform(-K, K)
+            dy = random.uniform(-K, K)
+            dz = random.uniform(-K, K)
             vectors.append(Vector(x=dx, y=dy, z=dz))
         cluster.update(vectors)
         cluster.real = False    
