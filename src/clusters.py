@@ -365,10 +365,10 @@ class Adjuster(nn.Module):
                 batch_count += 1
 
             avg_loss = epoch_loss / batch_count
-            print(f"Fake Generator - Epoch {epoch} - batch: {batch_count} - Average Loss: {avg_loss:.4f}")
+            print(f"Adjuster - Epoch {epoch} - Average Loss: {avg_loss:.4f}")
             if avg_loss < loss_cut_off:
                 print(
-                    f"Fake Generator - Early stopping after epoch {epoch} with average loss {avg_loss:.4f}"
+                    f"Adjuster - Early stopping after epoch {epoch} with average loss {avg_loss:.4f}"
                 )
                 break
 
@@ -477,7 +477,7 @@ class Evaluator(nn.Module):
 
             avg_loss = epoch_loss / batch_count
             print(
-                f"Evaluator - Epoch {epoch} - batch: {batch_count} - average loss: {avg_loss}"
+                f"Evaluator - Epoch {epoch} - average loss: {avg_loss}"
             )
             if avg_loss < loss_cut_off:
                 print(
@@ -507,7 +507,7 @@ class Evaluator(nn.Module):
 
 
 def generate_clusters_dataset(
-    fake_generator: Adjuster, real_generator: RealGenerator, n_clusters: int
+    adjuster: Adjuster, real_generator: RealGenerator, n_clusters: int
 ):
     start_time = time.time()
 
@@ -516,7 +516,7 @@ def generate_clusters_dataset(
 
     # -------- Forms Of Fake Clusters --------
     #
-    fake_clusters = fake_generator.make_clusters(n_clusters=n_clusters)
+    fake_clusters = adjuster.make_clusters(n_clusters=n_clusters)
 
     real_clusters_noisy_big = real_generator.make_clusters(
         n_clusters=n_clusters, noise=32
@@ -527,13 +527,13 @@ def generate_clusters_dataset(
     real_clusters_noisy_small = real_generator.make_clusters(
         n_clusters=n_clusters, noise=1
     )
-    fake_clusters_denoise_large = fake_generator.make_clusters(
+    fake_clusters_denoise_large = adjuster.make_clusters(
         n_clusters=n_clusters, denoise=True, noise=32
     )
-    fake_clusters_denoise_medium = fake_generator.make_clusters(
+    fake_clusters_denoise_medium = adjuster.make_clusters(
         n_clusters=n_clusters, denoise=True, noise=8
     )
-    fake_clusters_denoise_small = fake_generator.make_clusters(
+    fake_clusters_denoise_small = adjuster.make_clusters(
         n_clusters=n_clusters, denoise=True, noise=1
     )
 
@@ -580,15 +580,15 @@ if __name__ == "__main__":
     epochs = 10
     n_rounds = 100
     loss_cut_off = 0.01
-    lr = 0.0001  # Can be changed for refinement?
-    fake_generator = Adjuster(cluster_size=cluster_size, lr=lr, n_iter=5)
+    lr = 0.001  # Can be changed for refinement?
+    adjuster = Adjuster(cluster_size=cluster_size, lr=lr, n_iter=5)
     real_generator = RealGenerator(cluster_size=cluster_size)
     evaluator = Evaluator(cluster_size=cluster_size, lr=lr)
 
     # --- Load Models to continue training ---
-    if os.path.exists("models/fake_generator.pt"):
+    if os.path.exists("models/adjuster.pt"):
         print("Loading fake generator model...")
-        fake_generator.load_state_dict(torch.load("models/fake_generator.pt"))
+        adjuster.load_state_dict(torch.load("models/adjuster.pt"))
     if os.path.exists("models/evaluator.pt"):
         print("Loading evaluator model...")
         evaluator.load_state_dict(torch.load("models/evaluator.pt"))
@@ -596,7 +596,7 @@ if __name__ == "__main__":
     # ------ Init Dataset ------
     # Generate clusters Initially
     clusters = generate_clusters_dataset(
-        fake_generator=fake_generator,
+        adjuster=adjuster,
         real_generator=real_generator,
         n_clusters=n_clusters,
     )
@@ -610,7 +610,7 @@ if __name__ == "__main__":
             clusters, epochs=epochs, batch_size=batch_size, loss_cut_off=loss_cut_off
         )
         # Train fake generator
-        fake_generator.train_model(
+        adjuster.train_model(
             clusters=clusters,
             evaluator=evaluator,
             epochs=epochs,
@@ -619,16 +619,16 @@ if __name__ == "__main__":
         )
         if i % 5 == 0:
             clusters = generate_clusters_dataset(
-                fake_generator=fake_generator,
+                adjuster=adjuster,
                 real_generator=real_generator,
                 n_clusters=n_clusters,
             )
 
             # Save models
-            fake_generator.save(f"models/fake_generator.pt")
+            adjuster.save(f"models/adjuster.pt")
             evaluator.save(f"models/evaluator.pt")
 
-    fake_generator.save(f"models/fake_generator.pt")
+    adjuster.save(f"models/adjuster.pt")
     evaluator.save(f"models/evaluator.pt")
 
     # TODO: Remove 100 Cap on taking in real sequences
