@@ -19,16 +19,19 @@ else:
     print("MPS device not found.")
     
 # ---- HYPERPARAMS ----
-DROPOUT = 0.01
+DROPOUT = 0.1
 CLUSTER_SIZE = 7
 BATCH_SIZE = 256
 N_CLUSTERS = 128 # will be like x8 for different cluster generators
 EPOCHS = 10
-N_ROUNDS = 100
+N_ROUNDS = 300
 LOSS_CUT_OFF = 0.01
 LR = 0.001  # Can be changed for refinement?
-N_ITER = 5 # number of iterations to apply delta update
+N_ITER = 10 # number of iterations to apply delta update
 LOAD_PRETRAINED = False
+NOISE_L = 7
+NOISE_M = 3
+NOISE_S = 1
 
 # ---- Helper functions ----
 import numpy as np
@@ -202,7 +205,7 @@ class Adjuster(nn.Module):
     lr: float
     n_iter: int
 
-    def __init__(self, cluster_size: int, lr: float = 0.001, n_iter: int = 4):
+    def __init__(self, cluster_size: int,  n_iter: int=5, lr: float = 0.001):
         super().__init__()
         self.cluster_size = cluster_size
         self.lr = lr
@@ -233,7 +236,6 @@ class Adjuster(nn.Module):
             nn.Dropout(DROPOUT),
             nn.Linear(32, cluster_size * 3),  # Final mapping.
         )
-
 
 
     def forward(self, x):
@@ -545,9 +547,7 @@ def generate_clusters_dataset(
 
     # -------- Form Of Real Clusters --------
     real_clusters = real_generator.make_clusters(n_clusters=n_clusters * 6)
-    noiseL = 2
-    noiseM = 1
-    noiseS = 0.2
+
     real_clusters_noisy_small = real_generator.make_clusters(
         n_clusters=n_clusters, noise=1
     )
@@ -562,32 +562,32 @@ def generate_clusters_dataset(
     fake_clusters = adjuster.make_clusters(n_clusters=n_clusters)
 
     fake_clusters_denoise_small = adjuster.make_clusters(
-        n_clusters=n_clusters, denoise=True, noise=noiseS
+        n_clusters=n_clusters, denoise=True, noise=NOISE_S
     )
     fake_clusters_denoise_medium = adjuster.make_clusters(
-        n_clusters=n_clusters, denoise=True, noise=noiseM
+        n_clusters=n_clusters, denoise=True, noise=NOISE_M
     )
     fake_clusters_denoise_large = adjuster.make_clusters(
-        n_clusters=n_clusters, denoise=True, noise=noiseL
+        n_clusters=n_clusters, denoise=True, noise=NOISE_L
     )
 
     # Real as Base
     print("------ Real Clusters ( from database )------")
     [print(cluster) for cluster in real_clusters[:1]]
-    print(f"------ Real Clusters ( from database + noise ({noiseS}) ) ------")
+    print(f"------ Real Clusters ( from database + noise ({NOISE_S}) ) ------")
     [print(cluster) for cluster in real_clusters_noisy_small[:1]]
-    print(f"------ Real Clusters ( from database + noise ({noiseM}) ) ------")
+    print(f"------ Real Clusters ( from database + noise ({NOISE_M}) ) ------")
     [print(cluster) for cluster in real_clusters_noisy_medium[:1]]
-    print(f"------ Real Clusters ( from database + noise ({noiseL}) ) ------")
+    print(f"------ Real Clusters ( from database + noise ({NOISE_L}) ) ------")
     [print(cluster) for cluster in real_clusters_noisy_big[:1]]
     # Fake as Base
     print("------ Fake Clusters ( from random + adjust ) ------")
     [print(cluster) for cluster in fake_clusters[:1]]
-    print(f"------ Fake Clusters ( from database + noise ({noiseS}) + adjust ) ------")
+    print(f"------ Fake Clusters ( from database + noise ({NOISE_S}) + adjust ) ------")
     [print(cluster) for cluster in fake_clusters_denoise_small[:1]]
-    print(f"------ Fake Clusters ( from database + noise ({noiseM}) + adjust) ------")
+    print(f"------ Fake Clusters ( from database + noise ({NOISE_M}) + adjust) ------")
     [print(cluster) for cluster in fake_clusters_denoise_medium[:1]]
-    print(f"------ Fake Clusters ( from database + noise ({noiseL}) + adjust ) ------")
+    print(f"------ Fake Clusters ( from database + noise ({NOISE_L}) + adjust ) ------")
     [print(cluster) for cluster in fake_clusters_denoise_large[:1]]
 
     # -------- Combine Clusters --------
@@ -614,7 +614,7 @@ if __name__ == "__main__":
     os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
 
-    adjuster = Adjuster(cluster_size=CLUSTER_SIZE, lr=LR, n_iter=N_ITER)
+    adjuster = Adjuster(cluster_size=CLUSTER_SIZE, n_iter=N_ITER, lr=LR)
     real_generator = RealGenerator(cluster_size=CLUSTER_SIZE)
     evaluator = Evaluator(cluster_size=CLUSTER_SIZE, lr=LR)
 
