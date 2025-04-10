@@ -29,9 +29,9 @@ LOSS_CUT_OFF = 0.01
 LR = 0.005  # Can be changed for refinement?
 N_ITER = 4 # number of iterations to apply delta update
 LOAD_PRETRAINED = False
-NOISE_L = 32
-NOISE_M = 8
-NOISE_S = 1
+NOISE_L = 13
+NOISE_M = 6.5
+NOISE_S = 2
 ROUNDS_PER_DATA_RESET = 5
 # ---- Helper functions ----
 import numpy as np
