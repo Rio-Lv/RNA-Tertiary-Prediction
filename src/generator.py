@@ -17,7 +17,9 @@ if torch.backends.mps.is_available():
     print(x)
 else:
     print("MPS device not found.")
-
+    
+# ---- HYPERPARAMS ----
+DROPOUT = 0.01
 
 # ---- Helper functions ----
 import numpy as np
@@ -208,10 +210,10 @@ class FakeGenerator(nn.Module):
         self.fc_block = nn.Sequential(
             nn.Linear(8 * 4 * 4, 64),  # 8*4*4=128 features.
             nn.LeakyReLU(0.2),
-            nn.Dropout(0.1),
+            nn.Dropout(DROPOUT),
             nn.Linear(64, 32),
             nn.LeakyReLU(0.2),
-            nn.Dropout(0.1),
+            nn.Dropout(DROPOUT),
             nn.Linear(32, cluster_size * 3),  # Final mapping.
         )
 
@@ -401,7 +403,7 @@ class Evaluator(nn.Module):
         self.fc_block = nn.Sequential(
             nn.Linear(256, 64),
             nn.LeakyReLU(0.2),
-            nn.Dropout(0.1),
+            nn.Dropout(DROPOUT),
             nn.Linear(64, 1),
         )
 
