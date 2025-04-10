@@ -9,7 +9,7 @@ if __name__ == "__main__":
     os.chdir(os.path.dirname(os.path.abspath(__file__)))
     
     # ------ PRIMARY PARAMS ------
-    test_size = 2000
+    test_size = 3000
     cluster_size = 5
     
     # ------ RANDOM STRANDS TEST  ------

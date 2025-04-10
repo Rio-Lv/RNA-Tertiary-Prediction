@@ -575,13 +575,13 @@ if __name__ == "__main__":
     real_generator = RealGenerator(cluster_size=cluster_size)
     evaluator = Evaluator(cluster_size=cluster_size, lr=lr)
 
-    # # --- Load Models to continue training ---
-    # if os.path.exists("models/fake_generator.pt"):
-    #     print("Loading fake generator model...")
-    #     fake_generator.load_state_dict(torch.load("models/fake_generator.pt"))
-    # if os.path.exists("models/evaluator.pt"):
-    #     print("Loading evaluator model...")
-    #     evaluator.load_state_dict(torch.load("models/evaluator.pt"))
+    # --- Load Models to continue training ---
+    if os.path.exists("models/fake_generator.pt"):
+        print("Loading fake generator model...")
+        fake_generator.load_state_dict(torch.load("models/fake_generator.pt"))
+    if os.path.exists("models/evaluator.pt"):
+        print("Loading evaluator model...")
+        evaluator.load_state_dict(torch.load("models/evaluator.pt"))
 
     # ------ Init Dataset ------
     # Generate clusters Initially
