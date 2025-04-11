@@ -20,20 +20,20 @@ else:
     
 # ---- HYPERPARAMS ----
 DROPOUT = 0.01
-CLUSTER_SIZE = 6
-BATCH_SIZE = 512
-N_CLUSTERS = 512 # will be like x8 for different cluster generators
-EPOCHS = 20
-N_ROUNDS = 10000
-LOSS_CUT_OFF = 0.0001
-LR = 0.001  # Can be changed for refinement?
-N_ITER = 6 # number of iterations to apply delta update
-LOAD_PRETRAINED = True
-# LOAD_PRETRAINED = False
+CLUSTER_SIZE = 4
+BATCH_SIZE = 256
+N_CLUSTERS = 256 # will be like x8 for different cluster generators
+EPOCHS = 5
+N_ROUNDS = 100
+LOSS_CUT_OFF = 0.01
+LR = 0.005  # Can be changed for refinement?
+N_ITER = 2# number of iterations to apply delta update
+# LOAD_PRETRAINED = True
+LOAD_PRETRAINED = False
 NOISE_L = 6.5
 NOISE_M = 2
-NOISE_S = 1
-ROUNDS_PER_DATA_RESET = 5
+NOISE_S = 0.5
+ROUNDS_PER_DATA_RESET = 50
 # ---- Helper functions ----
 import numpy as np
 
@@ -119,36 +119,39 @@ class Adjuster(nn.Module):
     lr: float
     n_iter: int
 
-    def __init__(self, cluster_size: int,  n_iter: int=5, lr: float = 0.001):
+    def __init__(self, cluster_size: int, n_iter: int = 5, lr: float = 0.001):
         super().__init__()
         self.cluster_size = cluster_size
         self.lr = lr
         self.n_iter = n_iter
 
-
-# Convolutional block with reduced channels, 2x2 kernels, and added padding.
+        # Convolutional block: use cluster_size as the number of filters.
         self.conv_block = nn.Sequential(
-            # Padding=1 prevents the spatial dimensions from collapsing too quickly.
-            nn.Conv2d(in_channels=1, out_channels=4, kernel_size=(2, 2), padding=1),
+            # First convolution: output channels = cluster_size.
+            nn.Conv2d(in_channels=1, out_channels=cluster_size, kernel_size=(3, 3), padding=1),
             nn.LeakyReLU(0.2),
-            nn.MaxPool2d(kernel_size=2),
-            nn.Conv2d(in_channels=4, out_channels=8, kernel_size=(2, 2), padding=1),
+            nn.MaxPool2d(kernel_size=3),
+            # Second convolution.
+            nn.Conv2d(in_channels=cluster_size, out_channels=cluster_size, kernel_size=(3, 3), padding=1),
             nn.LeakyReLU(0.2),
-            nn.MaxPool2d(kernel_size=2),
+            nn.MaxPool2d(kernel_size=3, stride=1, padding=1)
         )
         
-        # Adaptive pooling to force a fixed output size.
-        self.adaptive_pool = nn.AdaptiveAvgPool2d((4, 4))  # Expected output: (batch, 8, 4, 4)
-
-        # Fully connected block with reduced hidden dimensions.
+        # Adaptive pooling to force a fixed output size based on cluster_size.
+        self.adaptive_pool = nn.AdaptiveAvgPool2d((cluster_size, cluster_size))
+        
+        # Fully connected block.
+        # With adaptive pooling to (cluster_size, cluster_size) and output channels equal to cluster_size,
+        # the flattened feature vector has cluster_size * cluster_size * cluster_size = cluster_size^3 features.
         self.fc_block = nn.Sequential(
-            nn.Linear(8 * 4 * 4, 64),  # 8*4*4=128 features.
+            nn.Linear(cluster_size**3, 64),
             nn.LeakyReLU(0.2),
             nn.Dropout(DROPOUT),
             nn.Linear(64, 32),
             nn.LeakyReLU(0.2),
             nn.Dropout(DROPOUT),
-            nn.Linear(32, cluster_size * 3),  # Final mapping.
+            # Final mapping: output for each nucleotide has 3 coordinates.
+            nn.Linear(32, cluster_size * 3),
         )
 
 
@@ -568,9 +571,9 @@ if __name__ == "__main__":
         print(f" --- Round {i} --- ")
 
         # Train evaluator
-        # evaluator.train_model(
-        #     clusters, epochs=EPOCHS, batch_size=BATCH_SIZE, loss_cut_off=LOSS_CUT_OFF
-        # )
+        evaluator.train_model(
+            clusters, epochs=EPOCHS, batch_size=BATCH_SIZE, loss_cut_off=LOSS_CUT_OFF
+        )
         # Train fake generator
         adjuster.train_model(
             clusters=clusters,

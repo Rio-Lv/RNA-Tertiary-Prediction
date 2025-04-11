@@ -11,9 +11,10 @@ import torch
 import os
 
 # ========== TESTING PARAMETERS ==========
-TEST_SIZE = 500
-CLUSTER_SIZE = 6
+TEST_SIZE = 5000
+CLUSTER_SIZE = 4
 K = 2  # noise range Angstrom
+N_ITER = 2
 
 if __name__ == "__main__":
     # set file dir as current dir
@@ -98,19 +99,18 @@ if __name__ == "__main__":
     print(random.choice(real_clusters))
 
     
+    # # ------ ADJUSTER TEST ------
     print("---------- Adjuster Test Simple ----------")
     # Effect larger steps in nucleotides as a whole
     # ------ Same Random + Adjustments test ------
     # check if helps trick evaluator
-    adjuster = Adjuster(cluster_size=CLUSTER_SIZE, n_iter=1)
+    adjuster = Adjuster(cluster_size=CLUSTER_SIZE, n_iter=N_ITER)
     adjuster.load("models/adjuster.pt")
     adjusted_nucleotides = random_nucleotides.copy()
     
     # simpler: just update clusters then evaluate
     # form clusters from nucleotides
-    adjusted_clusters = nucleotides_to_clusters(
-        adjusted_nucleotides, real=False, cluster_size=CLUSTER_SIZE
-    )
+    adjusted_clusters = random_clusters.copy()
     for _ in range(1):
         # apply changes to clusters using adjuster
         for i in range(len(adjusted_clusters)):
