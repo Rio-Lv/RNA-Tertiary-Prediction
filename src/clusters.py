@@ -21,11 +21,11 @@ else:
 # ---- HYPERPARAMS ----
 DROPOUT = 0.01
 CLUSTER_SIZE = 6
-BATCH_SIZE = 128
-N_CLUSTERS = 128 # will be like x8 for different cluster generators
-EPOCHS = 10
+BATCH_SIZE = 512
+N_CLUSTERS = 512 # will be like x8 for different cluster generators
+EPOCHS = 20
 N_ROUNDS = 10000
-LOSS_CUT_OFF = 0.01
+LOSS_CUT_OFF = 0.0001
 LR = 0.001  # Can be changed for refinement?
 N_ITER = 6 # number of iterations to apply delta update
 LOAD_PRETRAINED = True
@@ -568,9 +568,9 @@ if __name__ == "__main__":
         print(f" --- Round {i} --- ")
 
         # Train evaluator
-        evaluator.train_model(
-            clusters, epochs=EPOCHS, batch_size=BATCH_SIZE, loss_cut_off=LOSS_CUT_OFF
-        )
+        # evaluator.train_model(
+        #     clusters, epochs=EPOCHS, batch_size=BATCH_SIZE, loss_cut_off=LOSS_CUT_OFF
+        # )
         # Train fake generator
         adjuster.train_model(
             clusters=clusters,
