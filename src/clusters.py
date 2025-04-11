@@ -19,20 +19,20 @@ else:
     print("MPS device not found.")
     
 # ---- HYPERPARAMS ----
-DROPOUT = 0.1
+DROPOUT = 0.01
 CLUSTER_SIZE = 6
-BATCH_SIZE = 256
+BATCH_SIZE = 128
 N_CLUSTERS = 128 # will be like x8 for different cluster generators
 EPOCHS = 10
-N_ROUNDS = 100
+N_ROUNDS = 10000
 LOSS_CUT_OFF = 0.01
 LR = 0.001  # Can be changed for refinement?
-N_ITER = 4 # number of iterations to apply delta update
+N_ITER = 6 # number of iterations to apply delta update
 LOAD_PRETRAINED = True
-LOAD_PRETRAINED = False
-NOISE_L = 13
-NOISE_M = 6.5
-NOISE_S = 2
+# LOAD_PRETRAINED = False
+NOISE_L = 6.5
+NOISE_M = 2
+NOISE_S = 1
 ROUNDS_PER_DATA_RESET = 5
 # ---- Helper functions ----
 import numpy as np
