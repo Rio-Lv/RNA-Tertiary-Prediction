@@ -55,7 +55,7 @@ if __name__ == "__main__":
 
     print(f"Number of clusters: {n_clusters}")
     print(f"Accuracy: {accuracy:.2f}")
-    print(random.choice(random_clusters))
+    print(random_clusters[5])
 
 
 
@@ -135,7 +135,7 @@ if __name__ == "__main__":
     accuracy = score / n_clusters
     print(f"Number of clusters: {n_clusters}")
     print(f"Accuracy: {accuracy:.2f}")
-    print(random.choice(adjusted_clusters))
+    print(adjusted_clusters[5])
     
     
     # # Advanced: Update using vector differences on whole nucleotides list

@@ -26,14 +26,14 @@ N_CLUSTERS = 256 # will be like x8 for different cluster generators
 EPOCHS = 5
 N_ROUNDS = 100
 LOSS_CUT_OFF = 0.01
-LR = 0.005  # Can be changed for refinement?
+LR = 0.001  # Can be changed for refinement?
 N_ITER = 2# number of iterations to apply delta update
-# LOAD_PRETRAINED = True
-LOAD_PRETRAINED = False
+LOAD_PRETRAINED = True
+# LOAD_PRETRAINED = False
 NOISE_L = 6.5
 NOISE_M = 2
 NOISE_S = 0.5
-ROUNDS_PER_DATA_RESET = 50
+ROUNDS_PER_DATA_RESET = 10
 # ---- Helper functions ----
 import numpy as np
 
@@ -261,6 +261,7 @@ class Adjuster(nn.Module):
         clusters = [c for c in clusters if not c.real]
         evaluator.eval()  # Evaluator in eval (frozen) mode.
         optimizer = optim.Adam(self.parameters(), lr=self.lr)
+        l2_lambda = 0.001
         criterion = nn.BCEWithLogitsLoss()
 
         # Prepare dataset: flatten each cluster tensor (shape: cluster_size*8)
@@ -304,6 +305,11 @@ class Adjuster(nn.Module):
                 # Evaluate the final updated inputs after all iterations
                 pred = evaluator(updated_inputs)
                 loss = criterion(pred, targets.float())
+                l2_reg = torch.tensor(0.0)
+                for param in self.parameters():
+                    l2_reg += torch.norm(param)
+                loss += l2_lambda * l2_reg  # Add L2 regularization to the loss
+                # Backpropagation
                 loss.backward()
                 optimizer.step()
 
