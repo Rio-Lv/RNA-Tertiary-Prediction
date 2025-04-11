@@ -2,7 +2,7 @@ import os
 import torch
 import torch.nn as nn
 from tools import *
-from DataTypes import Nucleotide, Vector, Cluster
+from DataTypes import Nucleotide, Vector, Cluster, nucleotides_to_clusters, create_random_nucleotides
 import numpy as np
 import pandas as pd
 import time
@@ -36,100 +36,6 @@ NOISE_S = 1
 ROUNDS_PER_DATA_RESET = 5
 # ---- Helper functions ----
 import numpy as np
-
-
-def nucleotides_to_clusters(
-    nucleotides: list[Nucleotide], real: bool, cluster_size: int
-) -> list[Cluster]:
-    """
-    Convert a list of nucleotides to clusters using optimized vectorized operations.
-    """
-    # Extract coordinates to a NumPy array (shape: [n_nucleotides, 3])
-    coords = np.array(
-        [[n.coordinate.x, n.coordinate.y, n.coordinate.z] for n in nucleotides]
-    )
-
-    # Compute pairwise squared distances (avoids sqrt for efficiency)
-    diff = coords[:, np.newaxis, :] - coords[np.newaxis, :, :]
-    squared_dists = np.square(diff).sum(axis=-1)
-
-    # Find nearest neighbors using argpartition (O(n) per row instead of O(n log n))
-    # Get indices of cluster_size closest neighbors (including self)
-    nearest_indices = np.argpartition(squared_dists, cluster_size - 1, axis=1)[
-        :, :cluster_size
-    ]
-
-    # Create row indices for advanced indexing
-    rows = np.arange(squared_dists.shape[0])[:, np.newaxis]
-
-    # Sort just the nearest indices by distance
-    sorted_within = np.argsort(squared_dists[rows, nearest_indices], axis=1)
-    nearest_indices = nearest_indices[rows, sorted_within]
-
-    # Convert indices to clusters
-    return [
-        Cluster(
-            nucleotides=[nucleotides[j] for j in row_indices],
-            real=real,
-            cluster_size=cluster_size,
-        )
-        for row_indices in nearest_indices
-    ]
-
-# ---- Create random nucleotides, random relative to last points ----
-
-def create_random_nucleotides(n_clusters, sequence:str = None):
-    """
-    Create a random set of nucleotides.
-    """
-    if sequence:
-        assert len(sequence) == n_clusters, "Sequence length must match number of clusters."
-    nucleotides = []
-    x, y, z = 0, 0, 0
-    for i in range(n_clusters):
-        magnitude = np.random.rand() * 6.5
-        rx = np.random.rand() * 2 * np.pi
-        ry = np.random.rand() * 2 * np.pi
-        rz = np.random.rand() * 2 * np.pi
-        x += float(magnitude * np.cos(rx))
-        y += float(magnitude * np.sin(ry))
-        z += float(magnitude * np.sin(rz))
-        res_type = None
-        if sequence:
-            res_type = sequence[i]
-        else:
-            random_type = np.random.choice(["A", "C", "G", "U", "N"])
-            res_type = random_type
-        coordinate = Vector(x=x, y=y, z=z)
-        nucleotides.append(Nucleotide(index=i, type=res_type, coordinate=coordinate))
-    return nucleotides
-
-
-def save_clusters_to_csv(clusters: list[Cluster], filename: str):
-    """
-    Save clusters to a CSV file. Add Cluster ID to the first column.
-    """
-
-    # Helper function to convert tensors to floats
-    def to_float(x):
-        return x.item() if hasattr(x, "item") else x
-
-    data = []
-    for i, cluster in enumerate(clusters):
-        array = cluster.get_array()
-        for j in range(len(array)):
-            # Ensure that if any element is a Tensor, we convert it to float
-            row_values = [to_float(val) for val in array[j]]
-            is_real = 1 if cluster.real else 0
-            row = [i] + row_values + [is_real]
-            data.append(row)
-
-    df = pd.DataFrame(
-        data, columns=["Cluster ID", "dx", "dy", "dz", "A", "C", "G", "U", "CB", "real"]
-    )
-    df.to_csv(filename, index=False)
-    print(f"Saved {len(df)} rows to {filename}")
-
 
 class RealGenerator:
     labels_path = "data/train_labels.csv"
@@ -192,9 +98,16 @@ class RealGenerator:
             for cluster in clusters:
                 vectors = []
                 for i in range(self.cluster_size):
-                    dx = np.random.uniform(-noise, noise)
-                    dy = np.random.uniform(-noise, noise)
-                    dz = np.random.uniform(-noise, noise)
+                    mag = np.random.uniform(0, noise)
+                    # random unit vector
+                    theta = np.random.uniform(0, 2 * np.pi)
+                    phi = np.random.uniform(0, 2 * np.pi)
+                    dx = mag * np.sin(theta) * np.cos(phi)
+                    dy = mag * np.sin(theta) * np.sin(phi)
+                    dz = mag * np.cos(theta)
+                    dx = dx
+                    dy = dy
+                    dz = dz
                     vectors.append(Vector(x=dx, y=dy, z=dz))
                 cluster.update(vectors)
                 cluster.real = False
@@ -592,22 +505,22 @@ def generate_clusters_dataset(
 
     # Real as Base
     print("------ Real Clusters ( from database )------")
-    [print(cluster) for cluster in real_clusters[:1]]
+    print(random.choice(real_clusters))
     print(f"------ Real Clusters ( from database + noise ({NOISE_S}) ) ------")
-    [print(cluster) for cluster in real_clusters_noisy_small[:1]]
+    print(random.choice(real_clusters_noisy_small))
     print(f"------ Real Clusters ( from database + noise ({NOISE_M}) ) ------")
-    [print(cluster) for cluster in real_clusters_noisy_medium[:1]]
+    print(random.choice(real_clusters_noisy_medium))
     print(f"------ Real Clusters ( from database + noise ({NOISE_L}) ) ------")
-    [print(cluster) for cluster in real_clusters_noisy_big[:1]]
+    print(random.choice(real_clusters_noisy_big))
     # Fake as Base
     print("------ Fake Clusters ( from random + adjust ) ------")
-    [print(cluster) for cluster in fake_clusters[:1]]
+    print(random.choice(fake_clusters))
     print(f"------ Fake Clusters ( from database + noise ({NOISE_S}) + adjust ) ------")
-    [print(cluster) for cluster in fake_clusters_denoise_small[:1]]
+    print(random.choice(fake_clusters_denoise_small))
     print(f"------ Fake Clusters ( from database + noise ({NOISE_M}) + adjust ) ------")
-    [print(cluster) for cluster in fake_clusters_denoise_medium[:1]]
+    print(random.choice(fake_clusters_denoise_medium))
     print(f"------ Fake Clusters ( from database + noise ({NOISE_L}) + adjust ) ------")
-    [print(cluster) for cluster in fake_clusters_denoise_large[:1]]
+    print(random.choice(fake_clusters_denoise_large))
 
     # -------- Combine Clusters --------
     # primary set

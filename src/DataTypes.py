@@ -3,6 +3,7 @@ from typing import Literal
 from torch import Tensor
 import random
 import pandas as pd
+import numpy as np
 
 
 class Vector:
@@ -153,10 +154,11 @@ class Cluster:
     def get_array(self):
         base_nucleotide = self.nucleotides[0]
         relative_nucleotides = []
-        connected_to_base = []
+        connected_to_base = [0] * len(self.nucleotides)
         base_index = base_nucleotide.index
 
-        for nucleotide in self.nucleotides:
+        for i in range(len(self.nucleotides)):
+            nucleotide = self.nucleotides[i]
             relative_nucleotide = Nucleotide(
                 index=nucleotide.index,
                 type=nucleotide.type,
@@ -170,9 +172,7 @@ class Cluster:
 
             # Check if the nucleotide is connected to the base nucleotide
             if abs(nucleotide.index - base_index) == 1:
-                connected_to_base.append(1)
-            else:
-                connected_to_base.append(0)
+                connected_to_base[i] = 1
 
         array = [nucleotide.get_array() for nucleotide in relative_nucleotides]
         array = [row + [connected_to_base[i]] for i, row in enumerate(array)]
@@ -200,6 +200,102 @@ class Cluster:
             
         self.array = self.get_array()
         self.tensor = self.get_tensor()
+        
+# ------ HELPER FUNCTIONS ------
+# ---- Create random nucleotides, random relative to last points ----
+
+def create_random_nucleotides(n_clusters, sequence:str = None):
+    """
+    Create a random set of nucleotides.
+    """
+    if sequence:
+        assert len(sequence) == n_clusters, "Sequence length must match number of clusters."
+    nucleotides = []
+    x, y, z = 0, 0, 0
+    for i in range(n_clusters):
+        magnitude = np.random.rand() * 6.5
+        rx = np.random.rand() * 2 * np.pi
+        ry = np.random.rand() * 2 * np.pi
+        rz = np.random.rand() * 2 * np.pi
+        x += float(magnitude * np.cos(rx))
+        y += float(magnitude * np.sin(ry))
+        z += float(magnitude * np.sin(rz))
+        res_type = None
+        if sequence:
+            res_type = sequence[i]
+        else:
+            random_type = np.random.choice(["A", "C", "G", "U", "N"])
+            res_type = random_type
+        coordinate = Vector(x=x, y=y, z=z)
+        nucleotides.append(Nucleotide(index=i, type=res_type, coordinate=coordinate))
+    return nucleotides
+
+
+def save_clusters_to_csv(clusters: list[Cluster], filename: str):
+    """
+    Save clusters to a CSV file. Add Cluster ID to the first column.
+    """
+
+    # Helper function to convert tensors to floats
+    def to_float(x):
+        return x.item() if hasattr(x, "item") else x
+
+    data = []
+    for i, cluster in enumerate(clusters):
+        array = cluster.get_array()
+        for j in range(len(array)):
+            # Ensure that if any element is a Tensor, we convert it to float
+            row_values = [to_float(val) for val in array[j]]
+            is_real = 1 if cluster.real else 0
+            row = [i] + row_values + [is_real]
+            data.append(row)
+
+    df = pd.DataFrame(
+        data, columns=["Cluster ID", "dx", "dy", "dz", "A", "C", "G", "U", "CB", "real"]
+    )
+    df.to_csv(filename, index=False)
+    print(f"Saved {len(df)} rows to {filename}")
+
+
+def nucleotides_to_clusters(
+    nucleotides: list[Nucleotide], real: bool, cluster_size: int
+) -> list[Cluster]:
+    """
+    Convert a list of nucleotides to clusters using optimized vectorized operations.
+    """
+    # Extract coordinates to a NumPy array (shape: [n_nucleotides, 3])
+    coords = np.array(
+        [[n.coordinate.x, n.coordinate.y, n.coordinate.z] for n in nucleotides]
+    )
+
+    # Compute pairwise squared distances (avoids sqrt for efficiency)
+    diff = coords[:, np.newaxis, :] - coords[np.newaxis, :, :]
+    squared_dists = np.square(diff).sum(axis=-1)
+
+    # Find nearest neighbors using argpartition (O(n) per row instead of O(n log n))
+    # Get indices of cluster_size closest neighbors (including self)
+    nearest_indices = np.argpartition(squared_dists, cluster_size - 1, axis=1)[
+        :, :cluster_size
+    ]
+
+    # Create row indices for advanced indexing
+    rows = np.arange(squared_dists.shape[0])[:, np.newaxis]
+
+    # Sort just the nearest indices by distance
+    sorted_within = np.argsort(squared_dists[rows, nearest_indices], axis=1)
+    nearest_indices = nearest_indices[rows, sorted_within]
+
+    # Convert indices to clusters
+    return [
+        Cluster(
+            nucleotides=[nucleotides[j] for j in row_indices],
+            real=real,
+            cluster_size=cluster_size,
+        )
+        for row_indices in nearest_indices
+    ]
+
+
 
 
 if __name__ == "__main__":
@@ -228,5 +324,15 @@ if __name__ == "__main__":
     vectors = [Vector(x=i, y=1.0, z=1.0) for i in range(cluster_size)]
     test_cluster.update(vectors)
     print(test_cluster)
+    
+    
+    random_nucleotides = create_random_nucleotides(cluster_size)
+    [print(n) for n in random_nucleotides]
+    random_clusters = nucleotides_to_clusters(
+        random_nucleotides, real=False, cluster_size=cluster_size
+    )
+    [print(c) for c in random_clusters]
+    
+    
     
  
