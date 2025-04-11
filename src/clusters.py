@@ -20,15 +20,15 @@ else:
     
 # ---- HYPERPARAMS ----
 DROPOUT = 0.1
-CLUSTER_SIZE = 6
+CLUSTER_SIZE = 5
 BATCH_SIZE = 256
 N_CLUSTERS = 128 # will be like x8 for different cluster generators
 EPOCHS = 10
-N_ROUNDS = 20
+N_ROUNDS = 100
 LOSS_CUT_OFF = 0.01
 LR = 0.005  # Can be changed for refinement?
 N_ITER = 4 # number of iterations to apply delta update
-LOAD_PRETRAINED = False
+LOAD_PRETRAINED = True
 NOISE_L = 13
 NOISE_M = 6.5
 NOISE_S = 2
