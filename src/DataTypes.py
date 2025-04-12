@@ -69,6 +69,12 @@ class Nucleotide:
 class Cluster:
     """
     Coord Vectors should be relative to the first nucleotide in the cluster.
+    Tensor should be 3D, a Distance Matrix and a Types in one.
+    The Shape should be (cluster_size, cluster_size, depth)
+    Type is hot encoded for ACGU. eg. [1, 0, 0, 0] for A
+    Depth is 4 (one per nucleotide type) + 1 which is the distance.
+    The distance is the first element in the array.
+    So if cluster size is 
     """
 
     nucleotides: list[Nucleotide]
@@ -80,18 +86,11 @@ class Cluster:
         real: bool,
         nucleotides: list[Nucleotide],
         cluster_size: int
-        
     ):
         self.real = real
         self.nucleotides = nucleotides
         self.cluster_size = cluster_size
         self.tensor = self.get_tensor()
-
-        assert self.tensor.shape == (
-            cluster_size,
-            8,
-        ), f"Cluster tensor must be of shape ({cluster_size}, 8). Got {self.tensor.shape}, cluster: {self}"
-
     def __repr__(self):
         """
         Cluster representation.
@@ -151,6 +150,7 @@ class Cluster:
         array_str = "\n".join(rows)
         return array_str
 
+    
     def get_tensor(self):
         base_nucleotide = self.nucleotides[0]
         relative_nucleotides = []
