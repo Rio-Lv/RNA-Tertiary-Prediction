@@ -82,7 +82,7 @@ class RealGenerator:
         return nucleotides
 
     def make_clusters(self, n_clusters: int, noise: float = None)-> list[Cluster]:
-        clusters = []
+        clusters:list[Cluster] = []
         while len(clusters) < n_clusters:
             pdb_id, sequence_str = self.get_random_sequence()
             while len(sequence_str) > 300 or len(sequence_str) < self.cluster_size:
@@ -109,7 +109,7 @@ class RealGenerator:
                     dy = dy
                     dz = dz
                     vectors.append(Vector(x=dx, y=dy, z=dz))
-                cluster.update(vectors)
+                cluster.update_nucleotide_coords(vectors)
                 cluster.real = False
         return clusters[:n_clusters]
 
@@ -207,7 +207,7 @@ class Adjuster(nn.Module):
             dz = updated_tensor[i][2]
             deltas.append(Vector(x=dx, y=dy, z=dz))
         # Update the cluster with the new coordinates
-        cluster.update(deltas)
+        cluster.update_nucleotide_coords(deltas)
         
         return cluster
 

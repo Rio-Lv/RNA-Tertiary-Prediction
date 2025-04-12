@@ -96,6 +96,8 @@ class Cluster:
         """
         Cluster representation.
         """
+        nucleotides = self.nucleotides
+        array = [nucleotide.get_array() for nucleotide in nucleotides]
         columns = ["dx", "dy", "dz", "A", "C", "G", "U", "CB", "real"]
         # Create a string representation of the cluster
 
@@ -132,7 +134,7 @@ class Cluster:
 
         # Build the rows, applying the correct width for each column.
         rows = [header]
-        for row in self.array:
+        for row in array:
             formatted_row_parts = []
             for i, val in enumerate(row):
                 width = 5 if i < 3 else 3

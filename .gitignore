@@ -1,3 +1,5 @@
 *.pdb
 .venv
 MSA/
+*.png
+*.mp4 
