@@ -32,13 +32,12 @@ class Nucleotide:
         index: int = 0,
         type: Literal["A", "C", "G", "U", "N"] = "N",
         coordinate: Vector = Vector(),
-        neighbors: list["Nucleotide"] = [],
     ):
         self.index = index
         self.type = type
         self.coordinate = coordinate
         self.array = self.get_array()
-        self.neighbors = neighbors
+
         assert (
             len(self.array) == 7
         ), f"Nucleotide array must be of length 7. Got {len(self.array)}"
@@ -85,9 +84,8 @@ class Cluster:
     ):
         self.real = real
         self.nucleotides = nucleotides
-        self.array = self.get_array()
-        self.tensor = self.get_tensor()
         self.cluster_size = cluster_size
+        self.tensor = self.get_tensor()
 
         assert self.tensor.shape == (
             cluster_size,
@@ -151,7 +149,7 @@ class Cluster:
         array_str = "\n".join(rows)
         return array_str
 
-    def get_array(self):
+    def get_tensor(self):
         base_nucleotide = self.nucleotides[0]
         relative_nucleotides = []
         connected_to_base = [0] * len(self.nucleotides)
@@ -176,12 +174,10 @@ class Cluster:
 
         array = [nucleotide.get_array() for nucleotide in relative_nucleotides]
         array = [row + [connected_to_base[i]] for i, row in enumerate(array)]
-        return array
 
-    def get_tensor(self):
-        return Tensor(self.array)
+        return Tensor(array)
 
-    def update(self, vectors: list[Vector]):
+    def update_nucleotide_coords(self, vectors: list[Vector]):
         """
         Move the base nucleotide by a given delta vector.
         """
@@ -197,8 +193,8 @@ class Cluster:
             nucleotide.coordinate.x += dx
             nucleotide.coordinate.y += dy
             nucleotide.coordinate.z += dz
+            self.nucleotides[i] = nucleotide
             
-        self.array = self.get_array()
         self.tensor = self.get_tensor()
         
 # ------ HELPER FUNCTIONS ------
@@ -213,7 +209,7 @@ def create_random_nucleotides(n_clusters, sequence:str = None):
     nucleotides = []
     x, y, z = 0, 0, 0
     for i in range(n_clusters):
-        magnitude = np.random.rand() * 6.5
+        magnitude = 5.5 + np.random.rand() * 2
         rx = np.random.rand() * 2 * np.pi
         ry = np.random.rand() * 2 * np.pi
         rz = np.random.rand() * 2 * np.pi
