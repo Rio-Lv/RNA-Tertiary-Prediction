@@ -11,13 +11,13 @@ import copy
 import math
 from scipy.spatial.transform import Rotation as R
 import numpy as np
-import time 
+import time
 
 # set here to cwd
 os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
 # ====== CONSTANTS ======
-CLUSTER_SIZE = 20
+CLUSTER_SIZE = 40
 LABELS_PATH = "data/train_labels.csv"
 SEQUENCES_PATH = "data/train_sequences.csv"
 
@@ -62,7 +62,7 @@ class Sequence:
         self.coords = (
             copy.deepcopy(coords)
             if coords
-            else self.generate_random_coords(len(seq_str))
+            else self._coords_to_noise(walk=True)
         )
         self.source_coords = copy.deepcopy(self.coords)
         self.distance_matrix = self.compute_distance_matrix(self.coords)
@@ -146,33 +146,6 @@ class Sequence:
             + (coord1.z - coord2.z) ** 2
         ) ** 0.5
 
-    @staticmethod
-    def generate_random_coords(n: int = 4) -> list[Vector]:
-        """
-        Generate a 3D random walk.
-        First coordinate is random, subsequent are 5.5A in a random direction.
-        """
-
-        r = 5.5
-        coords = []
-        curr_pos = Vector(
-            random.uniform(-r, r),
-            random.uniform(-r, r),
-            random.uniform(-r, r),
-        )
-        coords.append(curr_pos)
-
-        for _ in range(1, n):
-            theta = random.uniform(0, 2 * math.pi)
-            phi = random.uniform(0, math.pi)
-            dx = r * math.sin(phi) * math.cos(theta)
-            dy = r * math.sin(phi) * math.sin(theta)
-            dz = r * math.cos(phi)
-            curr_pos = Vector(curr_pos.x + dx, curr_pos.y + dy, curr_pos.z + dz)
-            coords.append(curr_pos)
-
-        return coords
-
     def adjust_coords(self, k: float = 0.05, n_iter: int = 100) -> list[Vector]:
         """
         Make coords match the distance matrix. Via Simulation.
@@ -231,19 +204,21 @@ class Sequence:
         to that of target_coords.
         3. Rotate self.coords by the quaternion.
         4. Translate all points so that self.coords[0] aligns with target_coords[0].
-        5. Align the unit vector from self.coords[0] to self.coords[1] with the unit vector from 
+        5. Align the unit vector from self.coords[0] to self.coords[1] with the unit vector from
         target_coords[0] to target_coords[1] (apply an additional twist rotation about the plane normal).
         6. Return the new coordinates as a list of Vector objects.
-        
+
         Parameters:
         target_coords (list[Vector]): List of target Vector objects.
-        
+
         Returns:
         list[Vector]: A new list of Vector objects representing the aligned coordinates.
         """
         # Ensure there are at least 3 points in both sets.
         if len(self.coords) < 3 or len(target_coords) < 3:
-            raise ValueError("At least 3 coordinates are required in both the source and target sets.")
+            raise ValueError(
+                "At least 3 coordinates are required in both the source and target sets."
+            )
 
         # --- Step 1: Define planes for source and target using the first three points ---
         # Source plane
@@ -254,7 +229,7 @@ class Sequence:
         v2 = p2 - p0
         n_source = np.cross(v1, v2)
         n_source_norm = n_source / np.linalg.norm(n_source)
-        
+
         # Target plane
         q0 = np.array([target_coords[0].x, target_coords[0].y, target_coords[0].z])
         q1 = np.array([target_coords[1].x, target_coords[1].y, target_coords[1].z])
@@ -263,15 +238,15 @@ class Sequence:
         w2 = q2 - q0
         n_target = np.cross(w1, w2)
         n_target_norm = n_target / np.linalg.norm(n_target)
-        
+
         # --- Step 2: Create rotation to align source normal to target normal ---
         # Note: align_vectors expects target first.
         rot_obj, rmsd = R.align_vectors([n_target_norm], [n_source_norm])
-        
+
         # --- Step 3: Rotate all source points using the computed rotation ---
         points = np.array([[vec.x, vec.y, vec.z] for vec in self.coords])
         rotated_points = rot_obj.apply(points)
-        
+
         # --- Step 4: Translate so that the first points align ---
         translation = q0 - rotated_points[0]
         aligned_points = rotated_points + translation
@@ -283,7 +258,7 @@ class Sequence:
         # And for the target:
         vec_target = q1 - q0
         d_target = vec_target / np.linalg.norm(vec_target)
-        
+
         # Compute the angle between the directions.
         dot_val = np.clip(np.dot(d_source, d_target), -1.0, 1.0)
         angle = np.arccos(dot_val)
@@ -371,15 +346,42 @@ class Sequence:
         plt.show()
 
     # ====== TESTING (Sequence Class) ======
-    def _coords_to_noise(self, noise: float = 5):
+    def _coords_to_noise(self, walk:bool = True, noise_k: float = 5):
         """
         Testing function, replace coords with random noise
+        
+        Generate a 3D random walk.
+        First coordinate is random, subsequent are 5.5A in a random direction.
         """
-        for i in range(len(self.coords)):
-            self.coords[i].x = random.uniform(-noise, noise)
-            self.coords[i].y = random.uniform(-noise, noise)
-            self.coords[i].z = random.uniform(-noise, noise)
-        return self.coords
+        if walk:
+            n = len(self.seq_str)
+
+            r = 5.5
+            coords = []
+            curr_pos = Vector(
+                random.uniform(-r, r),
+                random.uniform(-r, r),
+                random.uniform(-r, r),
+            )
+            coords.append(curr_pos)
+
+            for _ in range(1, n):
+                theta = random.uniform(0, 2 * math.pi)
+                phi = random.uniform(0, math.pi)
+                dx = r * math.sin(phi) * math.cos(theta)
+                dy = r * math.sin(phi) * math.sin(theta)
+                dz = r * math.cos(phi)
+                curr_pos = Vector(curr_pos.x + dx, curr_pos.y + dy, curr_pos.z + dz)
+                coords.append(curr_pos)
+            self.coords = coords
+            return coords
+        else: 
+            noise = noise_k
+            for i in range(len(self.coords)):
+                self.coords[i].x = random.uniform(-noise, noise)
+                self.coords[i].y = random.uniform(-noise, noise)
+                self.coords[i].z = random.uniform(-noise, noise)
+            return self.coords
 
     def _test_adjust_coords(self):
         """
@@ -404,7 +406,11 @@ class Sequence:
         return self.coords
 
     def _test_adjust_coords_video(
-        self, video_filename="adjustment.mp4", iterations=100, interval=33
+        self,
+        iterations:int,
+        step_k:float,
+        video_filename="adjustment.mp4",
+        interval=33,
     ):
         """
         Adjust the coordinates to match the distance matrix and output a video
@@ -415,7 +421,7 @@ class Sequence:
 
         Parameters:
         video_filename (str): The filename of the output video.
-        iterations (int): Total number of adjustment iterations (default 100).
+        iterations (int): Total number of adjustment iterations (default 200).
         interval (int): Delay between frames in milliseconds (default ~33 ms for 30fps).
         """
         print("Starting video generation...")
@@ -424,18 +430,37 @@ class Sequence:
         start_time = time.time()
 
         # Deep copy the original coordinates.
-        original_coords = self.source_coords
+        original_coords = self.source_coords  # Assuming self.source_coords exists.
 
         # Add random noise to the coordinates.
-        k = 50
-        noise = [
-            Vector(random.uniform(-k, k), random.uniform(-k, k), random.uniform(-k, k))
-            for _ in range(len(self.coords))
-        ]
-        for i in range(len(self.coords)):
-            self.coords[i].x += noise[i].x
-            self.coords[i].y += noise[i].y
-            self.coords[i].z += noise[i].z
+        self._coords_to_noise()
+
+        # Compute the bounding box based on the original coordinates with 25% padding.
+        x_orig_vals = [coord.x for coord in original_coords]
+        y_orig_vals = [coord.y for coord in original_coords]
+        z_orig_vals = [coord.z for coord in original_coords]
+
+        x_min, x_max = min(x_orig_vals), max(x_orig_vals)
+        y_min, y_max = min(y_orig_vals), max(y_orig_vals)
+        z_min, z_max = min(z_orig_vals), max(z_orig_vals)
+
+        # Compute ranges and add 25% padding.
+        x_range = x_max - x_min
+        y_range = y_max - y_min
+        z_range = z_max - z_min
+
+        # If a range is 0, assign a small default value.
+        if x_range == 0: x_range = 1.0
+        if y_range == 0: y_range = 1.0
+        if z_range == 0: z_range = 1.0
+
+        x_pad = 0.25 * x_range
+        y_pad = 0.25 * y_range
+        z_pad = 0.25 * z_range
+
+        x_lim = (x_min - x_pad, x_max + x_pad)
+        y_lim = (y_min - y_pad, y_max + y_pad)
+        z_lim = (z_min - z_pad, z_max + z_pad)
 
         # Create a 3D plotting figure.
         fig = plt.figure()
@@ -443,12 +468,16 @@ class Sequence:
 
         def init():
             ax.clear()
+            # Fix the axis limits.
+            ax.set_xlim(x_lim)
+            ax.set_ylim(y_lim)
+            ax.set_zlim(z_lim)
             # Plot the original coordinates as points.
             x_orig = [coord.x for coord in original_coords]
             y_orig = [coord.y for coord in original_coords]
             z_orig = [coord.z for coord in original_coords]
             ax.scatter(x_orig, y_orig, z_orig, color="gray", s=100, label="Original")
-            # Plot a gray line connecting original coordinates.
+            # Plot a gray line connecting the original coordinates.
             ax.plot(
                 x_orig,
                 y_orig,
@@ -466,17 +495,24 @@ class Sequence:
 
         def update(frame):
             # Print progress every 10 iterations.
-            if (frame + 1) % 1 == 0 or frame == 0:
+            if (frame + 1) % 10 == 0 or frame == 0:
                 print(f"Processing iteration {frame+1}/{iterations}")
+
             # Perform a single adjustment iteration.
-            self.coords = self.adjust_coords()
+            self.coords = self.adjust_coords(k=step_k, n_iter=1)
             self.coords = self.align(original_coords)
+
             # Extract adjusted coordinates.
             x_adj = [coord.x for coord in self.coords]
             y_adj = [coord.y for coord in self.coords]
             z_adj = [coord.z for coord in self.coords]
-            # Replot original data (in gray) and the adjusted coordinates (in red).
+
+            # Clear and replot. Then set fixed axis limits.
             ax.clear()
+            ax.set_xlim(x_lim)
+            ax.set_ylim(y_lim)
+            ax.set_zlim(z_lim)
+
             # Original (static)
             x_orig = [coord.x for coord in original_coords]
             y_orig = [coord.y for coord in original_coords]
@@ -524,10 +560,10 @@ class Sequence:
         writer = Writer(fps=1000 // interval, metadata=dict(artist="Your Name"), bitrate=1800)
         ani.save(video_filename, writer=writer)
         plt.close(fig)
-        
+
         elapsed_time = time.time() - start_time
         print(f"Video saved to {video_filename} in {elapsed_time:.2f} seconds")
-        
+
         self.plot([original_coords, self.coords], ["Original", "Adjusted"])
 
 # ====== DATA PPEPERATION ======
@@ -626,4 +662,4 @@ if __name__ == "__main__":
     print(len(seq_dataset.real_sequences))
     # Initialize a real sequence (Distance Matrix Assigned)
     seq = seq_dataset.get_random_sequence()
-    seq._test_adjust_coords_video()
+    seq._test_adjust_coords_video(iterations=500,step_k=0.01)
