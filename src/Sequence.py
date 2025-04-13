@@ -17,7 +17,7 @@ import time
 os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
 # ====== CONSTANTS ======
-CLUSTER_SIZE = 40
+CLUSTER_SIZE = 100
 LABELS_PATH = "data/train_labels.csv"
 SEQUENCES_PATH = "data/train_sequences.csv"
 
@@ -146,7 +146,7 @@ class Sequence:
             + (coord1.z - coord2.z) ** 2
         ) ** 0.5
 
-    def adjust_coords(self, k: float = 0.05, n_iter: int = 100) -> list[Vector]:
+    def adjust_coords(self, k: float = 0.05, n_iter: int = 100, heat:float = 5) -> list[Vector]:
         """
         Make coords match the distance matrix. Via Simulation.
         1. Calculate distance matrix from current coordinates
@@ -168,7 +168,7 @@ class Sequence:
                     dx = self.coords[j].x - self.coords[i].x
                     dy = self.coords[j].y - self.coords[i].y
                     dz = self.coords[j].z - self.coords[i].z
-                    dist = Sequence.distance(self.coords[i], self.coords[j])
+                    dist = Sequence.distance(self.coords[i], self.coords[j]) + random.uniform(-heat, heat)
                     diff = diff_mat[i][j]
                     ux = dx / dist
                     uy = dy / dist
@@ -615,7 +615,7 @@ class SequenceDataset:
 
     def get_random_sequence(self):
         seq = random.choice(self.real_sequences)
-        while len(seq.coords) > 20 and len(seq.coords) < 15:
+        while len(seq.coords) > CLUSTER_SIZE+20 and len(seq.coords) < CLUSTER_SIZE-20:
             seq = random.choice(self.real_sequences)
         print(seq)
         return seq
