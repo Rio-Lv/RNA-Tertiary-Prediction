@@ -11,12 +11,13 @@ import copy
 import math
 from scipy.spatial.transform import Rotation as R
 import numpy as np
+import time 
 
 # set here to cwd
 os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
 # ====== CONSTANTS ======
-CLUSTER_SIZE = 8
+CLUSTER_SIZE = 20
 LABELS_PATH = "data/train_labels.csv"
 SEQUENCES_PATH = "data/train_sequences.csv"
 
@@ -207,7 +208,7 @@ class Sequence:
                 self.coords[i].y += deltas[i].y
                 self.coords[i].z += deltas[i].z
         return self.coords
-    
+
     def to_pdb(self, save_path: str = None) -> str:
         pdb_str = ""
         for i in range(len(self.coords)):
@@ -222,8 +223,87 @@ class Sequence:
                 f.write(pdb_str)
             print(f"Saved PDB to {save_path}")
         return pdb_str
-            
 
+    def align(self, target_coords):
+        """
+        1. Use the first 3 coordinates to create a plane for self.coords and target_coords.
+        2. Create a quaternion from the planes using SciPy to align the plane normal of self.coords
+        to that of target_coords.
+        3. Rotate self.coords by the quaternion.
+        4. Translate all points so that self.coords[0] aligns with target_coords[0].
+        5. Align the unit vector from self.coords[0] to self.coords[1] with the unit vector from 
+        target_coords[0] to target_coords[1] (apply an additional twist rotation about the plane normal).
+        6. Return the new coordinates as a list of Vector objects.
+        
+        Parameters:
+        target_coords (list[Vector]): List of target Vector objects.
+        
+        Returns:
+        list[Vector]: A new list of Vector objects representing the aligned coordinates.
+        """
+        # Ensure there are at least 3 points in both sets.
+        if len(self.coords) < 3 or len(target_coords) < 3:
+            raise ValueError("At least 3 coordinates are required in both the source and target sets.")
+
+        # --- Step 1: Define planes for source and target using the first three points ---
+        # Source plane
+        p0 = np.array([self.coords[0].x, self.coords[0].y, self.coords[0].z])
+        p1 = np.array([self.coords[1].x, self.coords[1].y, self.coords[1].z])
+        p2 = np.array([self.coords[2].x, self.coords[2].y, self.coords[2].z])
+        v1 = p1 - p0
+        v2 = p2 - p0
+        n_source = np.cross(v1, v2)
+        n_source_norm = n_source / np.linalg.norm(n_source)
+        
+        # Target plane
+        q0 = np.array([target_coords[0].x, target_coords[0].y, target_coords[0].z])
+        q1 = np.array([target_coords[1].x, target_coords[1].y, target_coords[1].z])
+        q2 = np.array([target_coords[2].x, target_coords[2].y, target_coords[2].z])
+        w1 = q1 - q0
+        w2 = q2 - q0
+        n_target = np.cross(w1, w2)
+        n_target_norm = n_target / np.linalg.norm(n_target)
+        
+        # --- Step 2: Create rotation to align source normal to target normal ---
+        # Note: align_vectors expects target first.
+        rot_obj, rmsd = R.align_vectors([n_target_norm], [n_source_norm])
+        
+        # --- Step 3: Rotate all source points using the computed rotation ---
+        points = np.array([[vec.x, vec.y, vec.z] for vec in self.coords])
+        rotated_points = rot_obj.apply(points)
+        
+        # --- Step 4: Translate so that the first points align ---
+        translation = q0 - rotated_points[0]
+        aligned_points = rotated_points + translation
+
+        # --- Step 5: Additional twist alignment to match the first-to-second point direction ---
+        # Compute the unit vector from point 0 to point 1 in the source (after rotation & translation)
+        vec_source = aligned_points[1] - aligned_points[0]
+        d_source = vec_source / np.linalg.norm(vec_source)
+        # And for the target:
+        vec_target = q1 - q0
+        d_target = vec_target / np.linalg.norm(vec_target)
+        
+        # Compute the angle between the directions.
+        dot_val = np.clip(np.dot(d_source, d_target), -1.0, 1.0)
+        angle = np.arccos(dot_val)
+        # Determine the sign of the angle using the target plane normal as the reference axis.
+        cross_vec = np.cross(d_source, d_target)
+        sign = np.sign(np.dot(cross_vec, n_target_norm))
+        twist_angle = angle * sign
+
+        # Create twist rotation about the axis (which is n_target_norm)
+        twist_rot = R.from_rotvec(twist_angle * n_target_norm)
+        # Apply the twist rotation about the common pivot q0 (target_coords[0]).
+        final_aligned_points = []
+        for pt in aligned_points:
+            final_pt = q0 + twist_rot.apply(pt - q0)
+            final_aligned_points.append(final_pt)
+
+        # --- Step 6: Convert back into a list of Vector objects and update self.coords ---
+        new_coords = [Vector(pt[0], pt[1], pt[2]) for pt in final_aligned_points]
+        self.coords = new_coords
+        return new_coords
 
     def plot(self, coords_list: list[list[Vector]] = None, set_names: list[str] = None):
         """
@@ -288,69 +368,11 @@ class Sequence:
         ax.set_title("3D Vector Plot")
         ax.legend()
 
-        plt.show()  
-        
-    def align(self, target_coords):
-        """
-        1. Use the first 3 coordinates to create a plane for self.coords and target_coords.
-        2. Create a quaternion from the planes using SciPy to align the plane normal of self.coords
-        to that of target_coords.
-        3. Rotate self.coords by the quaternion.
-        4. Translate all points so that self.coords[0] aligns with target_coords[0].
-        5. Return the new coordinates as a list of Vector objects.
-        
-        Parameters:
-        target_coords (list[Vector]): List of target Vector objects.
-        
-        Returns:
-        list[Vector]: A new list of Vector objects representing the aligned coordinates.
-        """
-        # Ensure there are at least 3 points in both sets.
-        if len(self.coords) < 3 or len(target_coords) < 3:
-            raise ValueError("At least 3 coordinates are required in both the source and target sets.")
+        plt.show()
 
-        # --- Step 1: Create planes from the first 3 coordinates ---
-        # For the source coordinates:
-        p0 = np.array([self.coords[0].x, self.coords[0].y, self.coords[0].z])
-        p1 = np.array([self.coords[1].x, self.coords[1].y, self.coords[1].z])
-        p2 = np.array([self.coords[2].x, self.coords[2].y, self.coords[2].z])
-        v1 = p1 - p0
-        v2 = p2 - p0
-        n_source = np.cross(v1, v2)
-        n_source_norm = n_source / np.linalg.norm(n_source)
-        
-        # For the target coordinates:
-        q0 = np.array([target_coords[0].x, target_coords[0].y, target_coords[0].z])
-        q1 = np.array([target_coords[1].x, target_coords[1].y, target_coords[1].z])
-        q2 = np.array([target_coords[2].x, target_coords[2].y, target_coords[2].z])
-        w1 = q1 - q0
-        w2 = q2 - q0
-        n_target = np.cross(w1, w2)
-        n_target_norm = n_target / np.linalg.norm(n_target)
-        
-        # --- Step 2: Create the quaternion to align the normals using SciPy ---
-        # Rotation.align_vectors expects the target vectors first.
-        rot_obj, rmsd = R.align_vectors([n_target_norm], [n_source_norm])
-        # rot_obj is a Rotation instance that rotates n_source_norm to n_target_norm.
-
-        # --- Step 3: Rotate self.coords using the computed quaternion ---
-        # Convert the source coordinate list into a NumPy array.
-        points = np.array([[vec.x, vec.y, vec.z] for vec in self.coords])
-        rotated_points = rot_obj.apply(points)
-        
-        # --- Step 4: Compute translation to align the first points ---
-        # We want rotated_points[0] to coincide with q0 (target's first coordinate).
-        translation = q0 - rotated_points[0]
-        aligned_points = rotated_points + translation
-        
-        # --- Step 5: Convert back into a list of Vector objects ---
-        new_coords = [Vector(pt[0], pt[1], pt[2]) for pt in aligned_points]
-        return new_coords
-    
-        
     # ====== TESTING (Sequence Class) ======
     def _coords_to_noise(self, noise: float = 5):
-        """ 
+        """
         Testing function, replace coords with random noise
         """
         for i in range(len(self.coords)):
@@ -382,7 +404,7 @@ class Sequence:
         return self.coords
 
     def _test_adjust_coords_video(
-        self, video_filename="adjustment.mp4", iterations=400, interval=33
+        self, video_filename="adjustment.mp4", iterations=100, interval=33
     ):
         """
         Adjust the coordinates to match the distance matrix and output a video
@@ -393,11 +415,16 @@ class Sequence:
 
         Parameters:
         video_filename (str): The filename of the output video.
-        iterations (int): Total number of adjustment iterations (default 200).
+        iterations (int): Total number of adjustment iterations (default 100).
         interval (int): Delay between frames in milliseconds (default ~33 ms for 30fps).
         """
+        print("Starting video generation...")
+
+        # Record the starting time.
+        start_time = time.time()
+
         # Deep copy the original coordinates.
-        original_coords = copy.deepcopy(self.coords)
+        original_coords = self.source_coords
 
         # Add random noise to the coordinates.
         k = 50
@@ -431,7 +458,6 @@ class Sequence:
                 linewidth=2,
                 label="Original Path",
             )
-
             ax.set_xlabel("X")
             ax.set_ylabel("Y")
             ax.set_zlabel("Z")
@@ -439,14 +465,16 @@ class Sequence:
             return []
 
         def update(frame):
+            # Print progress every 10 iterations.
+            if (frame + 1) % 1 == 0 or frame == 0:
+                print(f"Processing iteration {frame+1}/{iterations}")
             # Perform a single adjustment iteration.
             self.coords = self.adjust_coords()
-
+            self.coords = self.align(original_coords)
             # Extract adjusted coordinates.
             x_adj = [coord.x for coord in self.coords]
             y_adj = [coord.y for coord in self.coords]
             z_adj = [coord.z for coord in self.coords]
-
             # Replot original data (in gray) and the adjusted coordinates (in red).
             ax.clear()
             # Original (static)
@@ -463,7 +491,6 @@ class Sequence:
                 linewidth=2,
                 label="Original Path",
             )
-
             # Adjusted (dynamic)
             ax.scatter(x_adj, y_adj, z_adj, color="red", s=100, label="Adjusted")
             ax.plot(
@@ -475,7 +502,6 @@ class Sequence:
                 linewidth=2,
                 label="Adjusted Path",
             )
-
             ax.set_xlabel("X")
             ax.set_ylabel("Y")
             ax.set_zlabel("Z")
@@ -495,15 +521,14 @@ class Sequence:
 
         # Save the animation to a video file using the FFmpeg writer.
         Writer = animation.writers["ffmpeg"]
-        writer = Writer(
-            fps=1000 // interval, metadata=dict(artist="Your Name"), bitrate=1800
-        )
+        writer = Writer(fps=1000 // interval, metadata=dict(artist="Your Name"), bitrate=1800)
         ani.save(video_filename, writer=writer)
-
         plt.close(fig)
-        print(f"Video saved to {video_filename}")
-        self.plot([original_coords, self.coords], ["Orginal", "Adjusted"])
-    
+        
+        elapsed_time = time.time() - start_time
+        print(f"Video saved to {video_filename} in {elapsed_time:.2f} seconds")
+        
+        self.plot([original_coords, self.coords], ["Original", "Adjusted"])
 
 # ====== DATA PPEPERATION ======
 class SequenceDataset:
@@ -578,19 +603,27 @@ if __name__ == "__main__":
     # seq.test_adjust_coords_video()
     # print(seq)
 
-    # Test the Sequence Dataset class
+    # # ============ Test 1 ==============
+    # # Test the Sequence Dataset class
+    # seq_dataset = SequenceDataset()
+    # print(len(seq_dataset.real_sequences))
+    # # Initialize a real sequence (Distance Matrix Assigned)
+    # seq = seq_dataset.get_random_sequence()
+    # # seq.test_adjust_coords_video()
+    # # 1. Replace Coordinate with Random Noise
+    # seq._coords_to_noise()
+    # # 2. Adjust Coordinates to match the distance matrix
+    # seq.adjust_coords(n_iter=100)
+    # # 3. Align the sequence to a target sequence
+    # seq.align(seq.source_coords)
+    # # 4. Save the adjusted coordinates to a PDB file
+    # seq.to_pdb("data/pdbs_fake/sequence_class_test.pdb")
+    # # 5. Plot the original and adjusted coordinates (optional)
+    # seq.plot([seq.source_coords, seq.coords], ["Original", "Adjusted"])
+
+    # =============== Test 2 ==============
     seq_dataset = SequenceDataset()
     print(len(seq_dataset.real_sequences))
     # Initialize a real sequence (Distance Matrix Assigned)
     seq = seq_dataset.get_random_sequence()
-    # seq.test_adjust_coords_video()
-    # 1. Replace Coordinate with Random Noise
-    seq._coords_to_noise()
-    # 2. Adjust Coordinates to match the distance matrix
-    seq.adjust_coords(n_iter=100)
-    # 3. Align the sequence to a target sequence
-    seq.align(seq.source_coords)
-    # 4. Save the adjusted coordinates to a PDB file
-    seq.to_pdb("data/pdbs_fake/sequence_class_test.pdb")
-    # 5. Plot the original and adjusted coordinates
-    seq.plot([seq.source_coords, seq.coords], ["Original", "Adjusted"])
+    seq._test_adjust_coords_video()
