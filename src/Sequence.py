@@ -1,5 +1,5 @@
 import os
-from typing import Literal
+from typing import Optional
 from torch import Tensor
 from torch import nn
 import pandas as pd
@@ -9,14 +9,17 @@ import matplotlib.animation as animation
 from matplotlib import cm
 import copy
 import math
+from scipy.spatial.transform import Rotation as R
+import numpy as np
 
 # set here to cwd
 os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
 # ====== CONSTANTS ======
-CLUSTER_SIZE = 10
+CLUSTER_SIZE = 8
 LABELS_PATH = "data/train_labels.csv"
 SEQUENCES_PATH = "data/train_sequences.csv"
+
 
 # ====== TYPES ======
 class Vector:
@@ -28,25 +31,39 @@ class Vector:
         self.x = x
         self.y = y
         self.z = z
-        
-    def copy(self):
-        return Vector(self.x, self.y, self.z),
 
-    def add(self,vector:'Vector'):
+    def copy(self):
+        return (Vector(self.x, self.y, self.z),)
+
+    def add(self, vector: "Vector"):
         self.x += vector.x
         self.y += vector.y
         self.z += vector.z
-        
+
+
 # ====== SEQUENCE ======
 class Sequence:
     """
     Contains a type encodeding of a sequence.
     """
-    seq_str:str
-    coords:list[Vector]
-    def __init__(self, seq_str: str, coords: list[Vector] = None):
+
+    seq_str: str
+    seq_id: Optional[str]
+    coords: Optional[list[Vector]]
+    source_coords: Optional[list[Vector]]
+    distance_matrix: Tensor
+    encoding: Tensor
+
+    def __init__(self, seq_str: str, seq_id: str = None, coords: list[Vector] = None):
+        self.seq_str = seq_str
+        self.seq_id = seq_id
         self.encoding = self.encode_str(seq_str)
-        self.coords = coords if coords else self.generate_random_coords(len(seq_str))
+        self.coords = (
+            copy.deepcopy(coords)
+            if coords
+            else self.generate_random_coords(len(seq_str))
+        )
+        self.source_coords = copy.deepcopy(self.coords)
         self.distance_matrix = self.compute_distance_matrix(self.coords)
 
     def __repr__(self):
@@ -105,7 +122,7 @@ class Sequence:
         distance_matrix = []
         for i in range(len(coord_list)):
             row = []
-            
+
             for j in range(len(coord_list)):
                 if i == j:
                     row.append(0)
@@ -127,14 +144,14 @@ class Sequence:
             + (coord1.y - coord2.y) ** 2
             + (coord1.z - coord2.z) ** 2
         ) ** 0.5
-    
+
     @staticmethod
     def generate_random_coords(n: int = 4) -> list[Vector]:
         """
         Generate a 3D random walk.
         First coordinate is random, subsequent are 5.5A in a random direction.
         """
-        
+
         r = 5.5
         coords = []
         curr_pos = Vector(
@@ -154,24 +171,24 @@ class Sequence:
             coords.append(curr_pos)
 
         return coords
-    
-    def adjust_coords(self, k:float = 0.05, n_iter:int = 1):
-        """ 
-        Make coords match the distance matrix. Via Simulation. 
+
+    def adjust_coords(self, k: float = 0.05, n_iter: int = 100) -> list[Vector]:
+        """
+        Make coords match the distance matrix. Via Simulation.
         1. Calculate distance matrix from current coordinates
         2. Calc difference between distance matrix and target distance matrix
-        3. Create list of dx, dy, dz for each coordinate 
+        3. Create list of dx, dy, dz for each coordinate
         4. Calc all unit vectors from coord i to coord j
-        
+
         """
         for _ in range(n_iter):
             new_distance_matrix = self.compute_distance_matrix(self.coords)
             diff_mat = new_distance_matrix - self.distance_matrix
             # adjust coordinates based on diff
             n_coords = len(self.coords)
-            deltas:list[Vector] = [Vector(0,0,0) for _ in range(n_coords)]
+            deltas: list[Vector] = [Vector(0, 0, 0) for _ in range(n_coords)]
             for i in range(len(self.coords)):
-                for j in range( len(self.coords)):
+                for j in range(len(self.coords)):
                     if i == j:
                         continue
                     dx = self.coords[j].x - self.coords[i].x
@@ -179,34 +196,46 @@ class Sequence:
                     dz = self.coords[j].z - self.coords[i].z
                     dist = Sequence.distance(self.coords[i], self.coords[j])
                     diff = diff_mat[i][j]
-                    ux = dx/dist
-                    uy = dy/dist
-                    uz = dz/dist
-                    delta = Vector(
-                        ux * diff * k,
-                        uy * diff * k,
-                        uz * diff * k
-                    )
+                    ux = dx / dist
+                    uy = dy / dist
+                    uz = dz / dist
+                    delta = Vector(ux * diff * k, uy * diff * k, uz * diff * k)
                     deltas[i].add(delta)
-                    
-                    
+
             for i in range(len(self.coords)):
                 self.coords[i].x += deltas[i].x
                 self.coords[i].y += deltas[i].y
                 self.coords[i].z += deltas[i].z
         return self.coords
     
+    def to_pdb(self, save_path: str = None) -> str:
+        pdb_str = ""
+        for i in range(len(self.coords)):
+            x = self.coords[i].x
+            y = self.coords[i].y
+            z = self.coords[i].z
+            resname = self.seq_str[i]
+            pdb_str += f"ATOM  {i+1:5d}  CA  {resname} A{1:4d}    {x:8.3f}{y:8.3f}{z:8.3f}  1.00  0.00\n"
+        pdb_str += "END\n"
+        if save_path:
+            with open(save_path, "w") as f:
+                f.write(pdb_str)
+            print(f"Saved PDB to {save_path}")
+        return pdb_str
+            
+
+
     def plot(self, coords_list: list[list[Vector]] = None, set_names: list[str] = None):
         """
-        Plot multiple sequences by marking each point and connecting each coordinate 
-        i to i+1 with a line. Each vector set in coords_list is plotted as a separate 
-        line using a distinct color. The line is rendered with added transparency and 
+        Plot multiple sequences by marking each point and connecting each coordinate
+        i to i+1 with a line. Each vector set in coords_list is plotted as a separate
+        line using a distinct color. The line is rendered with added transparency and
         thickness, and the points are larger.
-        
+
         Parameters:
         coords_list (list[list[Vector]]): A list containing one or more lists of Vector objects.
                                             If None, uses self.coords as a single vector set.
-        set_names (list[str]): Optional list of labels for each coordinate set. The length of 
+        set_names (list[str]): Optional list of labels for each coordinate set. The length of
                                 set_names must match the number of coordinate sets.
         """
 
@@ -218,60 +247,150 @@ class Sequence:
         if set_names is None:
             set_names = [f"Set {i+1}" for i in range(len(coords_list))]
         elif len(set_names) != len(coords_list):
-            raise ValueError("Length of set_names must equal the number of coordinate sets in coords_list")
+            raise ValueError(
+                "Length of set_names must equal the number of coordinate sets in coords_list"
+            )
 
         fig = plt.figure()
         ax = fig.add_subplot(111, projection="3d")
-        
+
         # Use a colormap to assign a distinct color to each coordinate set.
         cmap = cm.get_cmap("tab10", len(coords_list))
-        
+
         # Iterate over each vector set and plot the points and connecting line.
         for i, coords in enumerate(coords_list):
             x = [coord.x for coord in coords]
             y = [coord.y for coord in coords]
             z = [coord.z for coord in coords]
-            
+
             color = cmap(i)  # Get a distinct color for the current set
-            
+
             # Scatter plot the points with increased size.
-            ax.scatter(x, y, z, s=100, color=color, label=f'{set_names[i]} Points')
-            
+            ax.scatter(x, y, z, s=100, color=color, label=f"{set_names[i]} Points")
+
             # Connect the points with a line that is thicker and partially transparent.
-            ax.plot(x, y, z, color=color, alpha=0.7, linewidth=2, label=f'{set_names[i]} Path')
-        
+            ax.plot(
+                x,
+                y,
+                z,
+                color=color,
+                alpha=0.7,
+                linewidth=2,
+                label=f"{set_names[i]} Path",
+            )
+
         # Label the axes.
         ax.set_xlabel("X")
         ax.set_ylabel("Y")
         ax.set_zlabel("Z")
-        
+
         # Add a title and legend for clarity.
         ax.set_title("3D Vector Plot")
         ax.legend()
+
+        plt.show()  
         
-        plt.show()
+    def align(self, target_coords):
+        """
+        1. Use the first 3 coordinates to create a plane for self.coords and target_coords.
+        2. Create a quaternion from the planes using SciPy to align the plane normal of self.coords
+        to that of target_coords.
+        3. Rotate self.coords by the quaternion.
+        4. Translate all points so that self.coords[0] aligns with target_coords[0].
+        5. Return the new coordinates as a list of Vector objects.
+        
+        Parameters:
+        target_coords (list[Vector]): List of target Vector objects.
+        
+        Returns:
+        list[Vector]: A new list of Vector objects representing the aligned coordinates.
+        """
+        # Ensure there are at least 3 points in both sets.
+        if len(self.coords) < 3 or len(target_coords) < 3:
+            raise ValueError("At least 3 coordinates are required in both the source and target sets.")
+
+        # --- Step 1: Create planes from the first 3 coordinates ---
+        # For the source coordinates:
+        p0 = np.array([self.coords[0].x, self.coords[0].y, self.coords[0].z])
+        p1 = np.array([self.coords[1].x, self.coords[1].y, self.coords[1].z])
+        p2 = np.array([self.coords[2].x, self.coords[2].y, self.coords[2].z])
+        v1 = p1 - p0
+        v2 = p2 - p0
+        n_source = np.cross(v1, v2)
+        n_source_norm = n_source / np.linalg.norm(n_source)
+        
+        # For the target coordinates:
+        q0 = np.array([target_coords[0].x, target_coords[0].y, target_coords[0].z])
+        q1 = np.array([target_coords[1].x, target_coords[1].y, target_coords[1].z])
+        q2 = np.array([target_coords[2].x, target_coords[2].y, target_coords[2].z])
+        w1 = q1 - q0
+        w2 = q2 - q0
+        n_target = np.cross(w1, w2)
+        n_target_norm = n_target / np.linalg.norm(n_target)
+        
+        # --- Step 2: Create the quaternion to align the normals using SciPy ---
+        # Rotation.align_vectors expects the target vectors first.
+        rot_obj, rmsd = R.align_vectors([n_target_norm], [n_source_norm])
+        # rot_obj is a Rotation instance that rotates n_source_norm to n_target_norm.
+
+        # --- Step 3: Rotate self.coords using the computed quaternion ---
+        # Convert the source coordinate list into a NumPy array.
+        points = np.array([[vec.x, vec.y, vec.z] for vec in self.coords])
+        rotated_points = rot_obj.apply(points)
+        
+        # --- Step 4: Compute translation to align the first points ---
+        # We want rotated_points[0] to coincide with q0 (target's first coordinate).
+        translation = q0 - rotated_points[0]
+        aligned_points = rotated_points + translation
+        
+        # --- Step 5: Convert back into a list of Vector objects ---
+        new_coords = [Vector(pt[0], pt[1], pt[2]) for pt in aligned_points]
+        return new_coords
     
-    def test_adjust_coords(self):
+        
+    # ====== TESTING (Sequence Class) ======
+    def _coords_to_noise(self, noise: float = 5):
+        """ 
+        Testing function, replace coords with random noise
+        """
+        for i in range(len(self.coords)):
+            self.coords[i].x = random.uniform(-noise, noise)
+            self.coords[i].y = random.uniform(-noise, noise)
+            self.coords[i].z = random.uniform(-noise, noise)
+        return self.coords
+
+    def _test_adjust_coords(self):
+        """
+        Try get structure from noise using distance matrix.
+        1. Recreate coordinates with random noise
+        2. Adjust coordinates to match distance matrix
+        3. Plot the original and adjusted coordinates.
+        """
         # Deep copy the original coordinates.
         original_coords = copy.deepcopy(self.coords)
         noise = 10
-        self.coords = [ Vector(
-                random.uniform(-noise,noise),
-                random.uniform(-noise,noise),
-                random.uniform(-noise,noise)
-            ) for _ in self.coords
+        self.coords = [
+            Vector(
+                random.uniform(-noise, noise),
+                random.uniform(-noise, noise),
+                random.uniform(-noise, noise),
+            )
+            for _ in self.coords
         ]
-        self.adjust_coords(k=0.05,n_iter=100)
-        self.plot([original_coords, self.coords], ["OG","Adjusted"])
-        
-    def test_adjust_coords_video(self, video_filename="adjustment.mp4", iterations=400, interval=33):
+        self.adjust_coords(k=0.05, n_iter=100)
+        self.plot([original_coords, self.coords], ["OG", "Adjusted"])
+        return self.coords
+
+    def _test_adjust_coords_video(
+        self, video_filename="adjustment.mp4", iterations=400, interval=33
+    ):
         """
         Adjust the coordinates to match the distance matrix and output a video
         showing the adjustment process over multiple iterations.
-        
+
         The original coordinates are shown in gray (with both scatter points
         and a connecting line) while the adjusted coordinates are plotted in red.
-        
+
         Parameters:
         video_filename (str): The filename of the output video.
         iterations (int): Total number of adjustment iterations (default 200).
@@ -279,13 +398,13 @@ class Sequence:
         """
         # Deep copy the original coordinates.
         original_coords = copy.deepcopy(self.coords)
-        
+
         # Add random noise to the coordinates.
         k = 50
-        noise = [Vector(random.uniform(-k, k),
-                        random.uniform(-k, k),
-                        random.uniform(-k, k))
-                for _ in range(len(self.coords))]
+        noise = [
+            Vector(random.uniform(-k, k), random.uniform(-k, k), random.uniform(-k, k))
+            for _ in range(len(self.coords))
+        ]
         for i in range(len(self.coords)):
             self.coords[i].x += noise[i].x
             self.coords[i].y += noise[i].y
@@ -294,81 +413,98 @@ class Sequence:
         # Create a 3D plotting figure.
         fig = plt.figure()
         ax = fig.add_subplot(111, projection="3d")
-        
+
         def init():
             ax.clear()
             # Plot the original coordinates as points.
             x_orig = [coord.x for coord in original_coords]
             y_orig = [coord.y for coord in original_coords]
             z_orig = [coord.z for coord in original_coords]
-            ax.scatter(x_orig, y_orig, z_orig, color='gray', s=100, label="Original")
+            ax.scatter(x_orig, y_orig, z_orig, color="gray", s=100, label="Original")
             # Plot a gray line connecting original coordinates.
-            ax.plot(x_orig, y_orig, z_orig, color='gray', alpha=0.7, linewidth=2, label="Original Path")
-            
+            ax.plot(
+                x_orig,
+                y_orig,
+                z_orig,
+                color="gray",
+                alpha=0.7,
+                linewidth=2,
+                label="Original Path",
+            )
+
             ax.set_xlabel("X")
             ax.set_ylabel("Y")
             ax.set_zlabel("Z")
             ax.set_title("Adjustment Process")
             return []
-        
+
         def update(frame):
             # Perform a single adjustment iteration.
             self.coords = self.adjust_coords()
-            
+
             # Extract adjusted coordinates.
             x_adj = [coord.x for coord in self.coords]
             y_adj = [coord.y for coord in self.coords]
             z_adj = [coord.z for coord in self.coords]
-            
+
             # Replot original data (in gray) and the adjusted coordinates (in red).
             ax.clear()
             # Original (static)
             x_orig = [coord.x for coord in original_coords]
             y_orig = [coord.y for coord in original_coords]
             z_orig = [coord.z for coord in original_coords]
-            ax.scatter(x_orig, y_orig, z_orig, color='gray', s=100, label="Original")
-            ax.plot(x_orig, y_orig, z_orig, color='gray', alpha=0.7, linewidth=2, label="Original Path")
-            
+            ax.scatter(x_orig, y_orig, z_orig, color="gray", s=100, label="Original")
+            ax.plot(
+                x_orig,
+                y_orig,
+                z_orig,
+                color="gray",
+                alpha=0.7,
+                linewidth=2,
+                label="Original Path",
+            )
+
             # Adjusted (dynamic)
-            ax.scatter(x_adj, y_adj, z_adj, color='red', s=100, label="Adjusted")
-            ax.plot(x_adj, y_adj, z_adj, color='red', alpha=0.7, linewidth=2, label="Adjusted Path")
-            
+            ax.scatter(x_adj, y_adj, z_adj, color="red", s=100, label="Adjusted")
+            ax.plot(
+                x_adj,
+                y_adj,
+                z_adj,
+                color="red",
+                alpha=0.7,
+                linewidth=2,
+                label="Adjusted Path",
+            )
+
             ax.set_xlabel("X")
             ax.set_ylabel("Y")
             ax.set_zlabel("Z")
             ax.set_title(f"Adjustment Iteration {frame+1}")
             ax.legend(loc="upper right")
             return []
-        
+
         # Create the animation object.
-        ani = animation.FuncAnimation(fig, update,
-                                    frames=range(iterations),
-                                    init_func=init,
-                                    interval=interval,
-                                    repeat=False)
-        
+        ani = animation.FuncAnimation(
+            fig,
+            update,
+            frames=range(iterations),
+            init_func=init,
+            interval=interval,
+            repeat=False,
+        )
+
         # Save the animation to a video file using the FFmpeg writer.
-        Writer = animation.writers['ffmpeg']
-        writer = Writer(fps=1000 // interval, metadata=dict(artist='Your Name'), bitrate=1800)
+        Writer = animation.writers["ffmpeg"]
+        writer = Writer(
+            fps=1000 // interval, metadata=dict(artist="Your Name"), bitrate=1800
+        )
         ani.save(video_filename, writer=writer)
-        
+
         plt.close(fig)
         print(f"Video saved to {video_filename}")
-        self.plot([original_coords,self.coords],["Orginal", "Adjusted"])
-        
-    def to_pdb(self, save_path: str = None) -> str:
-        pdb_str = ""
-        for i in range(len(self.coords)):
-            x = self.coords[i].x
-            y = self.coords[i].y
-            z = self.coords[i].z
-            resname = self.encoding[i]
-            pdb_str += f"ATOM  {i+1:5d}  CA  {resname} A{1:4d}    {x:8.3f}{y:8.3f}{z:8.3f}\n"
-        pdb_str += "END\n"
-        if save_path:
-            with open(save_path, "w") as f:
-                f.write(pdb_str)
-        return pdb_str
+        self.plot([original_coords, self.coords], ["Orginal", "Adjusted"])
+    
+
 # ====== DATA PPEPERATION ======
 class SequenceDataset:
     """
@@ -418,11 +554,12 @@ class SequenceDataset:
 
     def get_random_sequence(self):
         seq = random.choice(self.real_sequences)
-        while len(seq.coords) > 20 and len(seq.coords) < 7:
+        while len(seq.coords) > 20 and len(seq.coords) < 15:
             seq = random.choice(self.real_sequences)
         print(seq)
         return seq
-        
+
+
 # ======== MODELS ==========
 class DistanceMatrixModel(nn.Module):
     """
@@ -434,15 +571,26 @@ class DistanceMatrixModel(nn.Module):
 
 
 if __name__ == "__main__":
-    
+
     # Test Sequence from Seq String
     # seq = Sequence("ACGTAACGUUU")
     # seq.test_adjust_coords()
-    # seq.test_adjust_coords_video()    
+    # seq.test_adjust_coords_video()
     # print(seq)
 
     # Test the Sequence Dataset class
     seq_dataset = SequenceDataset()
     print(len(seq_dataset.real_sequences))
+    # Initialize a real sequence (Distance Matrix Assigned)
     seq = seq_dataset.get_random_sequence()
-    seq.test_adjust_coords_video()
+    # seq.test_adjust_coords_video()
+    # 1. Replace Coordinate with Random Noise
+    seq._coords_to_noise()
+    # 2. Adjust Coordinates to match the distance matrix
+    seq.adjust_coords(n_iter=100)
+    # 3. Align the sequence to a target sequence
+    seq.align(seq.source_coords)
+    # 4. Save the adjusted coordinates to a PDB file
+    seq.to_pdb("data/pdbs_fake/sequence_class_test.pdb")
+    # 5. Plot the original and adjusted coordinates
+    seq.plot([seq.source_coords, seq.coords], ["Original", "Adjusted"])
