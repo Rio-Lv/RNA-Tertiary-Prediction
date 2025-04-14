@@ -19,23 +19,23 @@ from tools import compute_similarity
 os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
 # ====== CONSTANTS ======
-SEQUENCE_SIZE = 300
+SEQUENCE_SIZE = 60
 # N_NEAREST_NEIGBORS = 30  # If using n nearest neighbors for adjustment
-MAX_DISTANCE = 16  # If using neightbor within distance for adjustment
+MAX_DISTANCE = 32  # If using neightbor within distance for adjustment
 USE_NEIGHBORS = False  # If using n nearest neighbors for adjustment
 
-ITERATIONS = 3000
+ITERATIONS = 5000
 TEMPERATURE = 0.01
-MAX_DELTA = 0.1  # Essentially cosmic speed limit
-
+MAX_DELTA = 0.01
 LABELS_PATH = "data/train_labels.csv"
 SEQUENCES_PATH = "data/train_sequences.csv"
 SEQUENCE_INDEX = 868
 
-MAX_SPINE_SPACE = 7  # Maximum distance between two points in the spine
+MAX_SPINE_SPACE = 7.7  # Maximum distance between two points in the spine
 
 OPEN_PLOT = True  # If True, will open a plot window for each sequence
 GRAVITY = 0.001
+VIDEO_SPEED = 20  # Speed of the video in frames per second
 
 
 # ====== TYPES ======
@@ -364,12 +364,10 @@ class Sequence:
 
     @staticmethod
     def compute_similarity_us_align(
-        genereated_coords: list[Vector], target_coords: list[Vector], seq_str: str
+        gen_path = "seq_output/seq_generated.pdb",
+        target_path = "seq_output/seq_target.pdb"  
     ):
-        gen_path = "seq_output/seq_generated.pdb"
-        target_path = "seq_output/seq_target.pdb"
-        Sequence.to_pdb(coords=genereated_coords, seq_str=seq_str, save_path=gen_path)
-        Sequence.to_pdb(coords=target_coords, seq_str=seq_str, save_path=target_path)
+
         compute_similarity(gen_path, target_path)
 
     @staticmethod
@@ -612,11 +610,24 @@ class Sequence:
         coords_adjusted, recording = self.adjust_coords(
             n_iter=iterations, use_neighbors=USE_NEIGHBORS
         )
+        
+        gen_path = "seq_output/seq_generated.pdb"
+        target_path = "seq_output/seq_target.pdb"
+        
+        self.to_pdb(
+            coords_adjusted,
+            self.seq_str,
+            save_path=gen_path,
+        )
+        self.to_pdb(
+            self.source_coords,
+            self.seq_str,
+            save_path=target_path,
+        )
 
         self.compute_similarity_us_align(
-            genereated_coords=coords_adjusted,
-            target_coords=self.source_coords,
-            seq_str=self.seq_str,
+            gen_path=gen_path,
+            target_path=target_path,
         )
 
         # Store the original coordinates (as a list of Vectors).
@@ -826,7 +837,31 @@ class SequenceDataset:
         print(f"Random Sequence: {random_index}")
         return seq
 
-
+    def get_stats(self):
+        """
+        Get the stats of the dataset.
+        1. Number of sequences
+        2. Average str length of sequence in 'sequence' col
+        3. Min length
+        4. Max length
+        5. Create a histogram of the lengths
+        """
+        sequences = pd.read_csv(SEQUENCES_PATH)
+        print(f"Number of sequences: {len(sequences)}")
+        print(f"Average sequence length: {sequences['sequence'].str.len().mean()}")
+        print(f"Min sequence length: {sequences['sequence'].str.len().min()}")
+        print(f"Max sequence length: {sequences['sequence'].str.len().max()}")
+        print(f"Standard deviation: {sequences['sequence'].str.len().std()}")
+      
+        # Plot histogram of sequence lengths
+        # limit the x-axis to 300
+        plt.hist(sequences["sequence"].str.len(), bins=300)
+        plt.xlim(0, 1000)
+        plt.xlabel("Sequence Length")
+        plt.ylabel("Frequency")
+        plt.title("Histogram of Sequence Lengths")
+        plt.show()
+        
 # ======== MODELS ==========
 class DistanceMatrixModel(nn.Module):
     """
@@ -865,15 +900,18 @@ if __name__ == "__main__":
     # # 5. Plot the original and adjusted coordinates (optional)
     # seq.plot([seq.source_coords, seq.coords], ["Original", "Adjusted"])
 
-    # =============== Test 2 ==============
+    # # =============== Test 2 ==============
     print("Loading Sequence Dataset")
     seq_dataset = SequenceDataset()
     print(len(seq_dataset.real_sequences))
     # Initialize a real sequence (Distance Matrix Assigned)
+    # seq_dataset.get_stats()
     print("Loading Random Sequence")
     seq = seq_dataset.get_random_sequence()
     # seq = seq_dataset.real_sequences[SEQUENCE_INDEX]
     print(f"Sequence Length: {len(seq.seq_str)}")
     # seq._coords_to_noise()
     # seq.adjust_coords(n_iter=100, use_neighbors=USE_NEIGHBORS)
-    seq._test_adjust_coords_video(iterations=ITERATIONS, speed=15)
+    seq._test_adjust_coords_video(iterations=ITERATIONS, speed=VIDEO_SPEED)
+    
+    Sequence.compute_similarity_us_align()
