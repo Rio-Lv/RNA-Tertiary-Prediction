@@ -19,12 +19,12 @@ from tools import compute_similarity
 os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
 # ====== CONSTANTS ======
-SEQUENCE_SIZE = 100
+SEQUENCE_SIZE = 200
 # N_NEAREST_NEIGBORS = 30  # If using n nearest neighbors for adjustment
 MAX_DISTANCE = 16  # If using neightbor within distance for adjustment
 USE_NEIGHBORS = False  # If using n nearest neighbors for adjustment
 
-ITERATIONS = 2000
+ITERATIONS = 10000
 TEMPERATURE = 0.01
 MAX_DELTA = 0.1  # Essentially cosmic speed limit
 
@@ -905,4 +905,4 @@ if __name__ == "__main__":
     print(f"Sequence Length: {len(seq.seq_str)}")
     # seq._coords_to_noise()
     # seq.adjust_coords(n_iter=100, use_neighbors=USE_NEIGHBORS)
-    seq._test_adjust_coords_video(iterations=ITERATIONS, speed=5)
+    seq._test_adjust_coords_video(iterations=ITERATIONS, speed=15)
