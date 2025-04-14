@@ -19,7 +19,7 @@ from tools import compute_similarity
 os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
 # ====== CONSTANTS ======
-SEQUENCE_SIZE = 200
+SEQUENCE_SIZE = 300
 # N_NEAREST_NEIGBORS = 30  # If using n nearest neighbors for adjustment
 MAX_DISTANCE = 16  # If using neightbor within distance for adjustment
 USE_NEIGHBORS = False  # If using n nearest neighbors for adjustment
@@ -871,6 +871,8 @@ class DistanceMatrixModel(nn.Module):
 
 
 if __name__ == "__main__":
+    
+    print("Starting Sequence Class Test")
 
     # Test Sequence from Seq String
     # seq = Sequence("ACGTAACGUUU")
@@ -897,9 +899,11 @@ if __name__ == "__main__":
     # seq.plot([seq.source_coords, seq.coords], ["Original", "Adjusted"])
 
     # =============== Test 2 ==============
+    print("Loading Sequence Dataset")
     seq_dataset = SequenceDataset()
     print(len(seq_dataset.real_sequences))
     # Initialize a real sequence (Distance Matrix Assigned)
+    print("Loading Random Sequence")
     seq = seq_dataset.get_random_sequence()
     # seq = seq_dataset.real_sequences[SEQUENCE_INDEX]
     print(f"Sequence Length: {len(seq.seq_str)}")
