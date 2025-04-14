@@ -21,7 +21,7 @@ os.chdir(os.path.dirname(os.path.abspath(__file__)))
 # ====== CONSTANTS ======
 SEQUENCE_SIZE = 60
 # N_NEAREST_NEIGBORS = 30  # If using n nearest neighbors for adjustment
-MAX_DISTANCE = 32  # If using neightbor within distance for adjustment
+MAX_DISTANCE = 12  # If using neightbor within distance for adjustment
 USE_NEIGHBORS = False  # If using n nearest neighbors for adjustment
 
 ITERATIONS = 5000
@@ -36,6 +36,8 @@ MAX_SPINE_SPACE = 7.7  # Maximum distance between two points in the spine
 OPEN_PLOT = True  # If True, will open a plot window for each sequence
 GRAVITY = 0.001
 VIDEO_SPEED = 20  # Speed of the video in frames per second
+
+# NOISY_SOURCE_MATRIX = True
 
 
 # ====== TYPES ======
