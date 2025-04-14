@@ -19,11 +19,11 @@ os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
 # ====== CONSTANTS ======
 SEQUENCE_SIZE = 40
-N_NEAREST_NEIGBORS = 20  # If using n nearest neighbors for adjustment
-MAX_DISTANCE = 20.0  # If using neightbor within distance for adjustment
+N_NEAREST_NEIGBORS = 30  # If using n nearest neighbors for adjustment
+MAX_DISTANCE = 30  # If using neightbor within distance for adjustment
 USE_NEIGHBORS = False  # If using n nearest neighbors for adjustment
 
-ITERATIONS = 1000
+ITERATIONS = 200
 TEMPERATURE = 0.12
 MAX_DELTA = 0.12 # Essentially cosmic speed limit
 
@@ -34,7 +34,7 @@ SEQUENCE_INDEX = 868
 MAX_SPINE_SPACE = 6.5  # Maximum distance between two points in the spine
 
 OPEN_PLOT = True  # If True, will open a plot window for each sequence
-GRAVITY = 0.01
+GRAVITY = 0.001
 
 
 # ====== TYPES ======
@@ -233,13 +233,13 @@ class Sequence:
         4. move each coord by the difference vector
         """
         centroid = Vector(0, 0, 0)
-        for coord in self.coords:
-            centroid.x += coord.x
-            centroid.y += coord.y
-            centroid.z += coord.z
-        centroid.x /= len(self.coords)
-        centroid.y /= len(self.coords)
-        centroid.z /= len(self.coords)
+        # for coord in self.coords:
+        #     centroid.x += coord.x
+        #     centroid.y += coord.y
+        #     centroid.z += coord.z
+        # centroid.x /= len(self.coords)
+        # centroid.y /= len(self.coords)
+        # centroid.z /= len(self.coords)
         # Calculate the difference vector
         for coord in self.coords:
             dx = centroid.x - coord.x
@@ -309,7 +309,7 @@ class Sequence:
         return self.coords
 
     def _adjust_coords_via_n_neighbors(self, n_iter: int) -> list[Vector]:
-        for i in range(n_iter):
+        for _ in range(n_iter):
             self.correct_spine()
             self.gravitate_centroid()   
             new_distance_matrix = self.compute_distance_matrix(self.coords)
@@ -320,8 +320,8 @@ class Sequence:
             # adjust coordinates based on diff
             n_coords = len(self.coords)
             deltas: list[Vector] = [Vector(0, 0, 0) for _ in range(n_coords)]
-            for i in range(len(self.coords)):
-                for j in range(len(self.coords)):
+            for i in range(len(self.coords) - N_NEAREST_NEIGBORS):
+                for j in range(i, i + N_NEAREST_NEIGBORS):
                     if i == j:
                         continue
                     dx = self.coords[j].x - self.coords[i].x
