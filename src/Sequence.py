@@ -17,10 +17,11 @@ import time
 os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
 # ====== CONSTANTS ======
-CLUSTER_SIZE = 100
+CLUSTER_SIZE = 70
 LABELS_PATH = "data/train_labels.csv"
 SEQUENCES_PATH = "data/train_sequences.csv"
-
+TEMPERATURE = 0
+MAX_DISTANCE = 20.0
 
 # ====== TYPES ======
 class Vector:
@@ -146,7 +147,7 @@ class Sequence:
             + (coord1.z - coord2.z) ** 2
         ) ** 0.5
 
-    def adjust_coords(self, k: float = 0.05, n_iter: int = 100, heat:float = 5) -> list[Vector]:
+    def adjust_coords(self, k: float = 0.05, n_iter: int = 100) -> list[Vector]:
         """
         Make coords match the distance matrix. Via Simulation.
         1. Calculate distance matrix from current coordinates
@@ -169,8 +170,12 @@ class Sequence:
                     dy = self.coords[j].y - self.coords[i].y
                     dz = self.coords[j].z - self.coords[i].z
                     
+                    # use gaussian noise for heat
+                    heat = random.gauss(0, TEMPERATURE)
                     
-                    dist = Sequence.distance(self.coords[i], self.coords[j]) + random.uniform(-heat, heat)
+                    dist = Sequence.distance(self.coords[i], self.coords[j]) + heat
+                    if dist >  MAX_DISTANCE:
+                        continue
                     diff = diff_mat[i][j]
                     ux = dx / dist
                     uy = dy / dist
@@ -664,4 +669,4 @@ if __name__ == "__main__":
     print(len(seq_dataset.real_sequences))
     # Initialize a real sequence (Distance Matrix Assigned)
     seq = seq_dataset.get_random_sequence()
-    seq._test_adjust_coords_video(iterations=300,step_k=0.01)
+    seq._test_adjust_coords_video(iterations=500,step_k=0.005)
