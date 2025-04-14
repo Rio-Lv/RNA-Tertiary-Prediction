@@ -12,19 +12,27 @@ import math
 from scipy.spatial.transform import Rotation as R
 import numpy as np
 import time
+from tools import compute_similarity
 
 # set here to cwd
 os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
 # ====== CONSTANTS ======
-SEQUENCE_SIZE = 70
+SEQUENCE_SIZE = 100
+N_NEAREST_NEIGBORS = 20  # If using n nearest neighbors for adjustment
+MAX_DISTANCE = 30.0  # If using neightbor within distance for adjustment
+USE_NEIGHBORS = False  # If using n nearest neighbors for adjustment
+
+ITERATIONS = 500
+TEMPERATURE = 10
+MAX_DELTA = 0.2  # Essentially cosmic speed limit
+
 LABELS_PATH = "data/train_labels.csv"
 SEQUENCES_PATH = "data/train_sequences.csv"
-TEMPERATURE = 5
-MAX_DISTANCE = 200.0
-ITERATIONS = 500
-MAX_DELTA = 0.2 # Essentially cosmic speed limit
 SEQUENCE_INDEX = 868
+
+OPEN_PLOT = True  # If True, will open a plot window for each sequence
+
 
 # ====== TYPES ======
 class Vector:
@@ -64,9 +72,7 @@ class Sequence:
         self.seq_id = seq_id
         self.encoding = self.encode_str(seq_str)
         self.coords = (
-            copy.deepcopy(coords)
-            if coords
-            else self._coords_to_noise(walk=True)
+            copy.deepcopy(coords) if coords else self._coords_to_noise(walk=True)
         )
         self.source_coords = copy.deepcopy(self.coords)
         self.distance_matrix = self.compute_distance_matrix(self.coords)
@@ -137,6 +143,42 @@ class Sequence:
         return Tensor(distance_matrix)
 
     @staticmethod
+    def compute_neighbors_matrix(coord_list: list[Vector], n_neighbors: int) -> Tensor:
+        """
+        Compute the n nearest neighbors for each coordinate.
+
+        For each coordinate in coord_list, determine the indices of the n closest points.
+        The output is a matrix of size (len(coord_list), n_neighbors) that stores the indices
+        of the nearest neighbors for each coordinate.
+
+        Parameters:
+        coord_list (list[Vector]): List of coordinate vectors.
+        n_neighbors (int): Number of nearest neighbors to find for each coordinate.
+
+        Returns:
+        Tensor: A 2D tensor (or list of lists) of nearest neighbor indices.
+        """
+        # First, compute the full distance matrix.
+        distance_matrix = Sequence.compute_distance_matrix(coord_list)
+
+        neighbors = []  # This will be a list of lists holding indices.
+        n_points = len(coord_list)
+
+        # For each point, find the indices corresponding to the n smallest distances
+        # (ignoring the diagonal entry which is zero).
+        for i in range(n_points):
+            # Create a list of indices with their associated distance,
+            # skipping the self-distance at index i.
+            distances = [(j, distance_matrix[i][j]) for j in range(n_points) if j != i]
+            # Sort the list by distance.
+            distances.sort(key=lambda tup: tup[1])
+            # Extract the indices of the n closest points.
+            nearest_indices = [idx for idx, dist in distances[:n_neighbors]]
+            neighbors.append(nearest_indices)
+
+        return Tensor(neighbors)
+
+    @staticmethod
     def distance(coord1: Vector, coord2: Vector) -> float:
         """
         Compute the distance between two coordinates.
@@ -150,7 +192,7 @@ class Sequence:
             + (coord1.z - coord2.z) ** 2
         ) ** 0.5
 
-    def adjust_coords(self, n_iter: int = 100) -> list[Vector]:
+    def _adjust_coords_via_max_dist(self, n_iter: int) -> list[Vector]:
         """
         Make coords match the distance matrix. Via Simulation.
         1. Calculate distance matrix from current coordinates
@@ -172,19 +214,19 @@ class Sequence:
                     dx = self.coords[j].x - self.coords[i].x
                     dy = self.coords[j].y - self.coords[i].y
                     dz = self.coords[j].z - self.coords[i].z
-                    
+
                     # use gaussian noise for heat
                     heat = random.gauss(0, TEMPERATURE)
-                    
+
                     dist = Sequence.distance(self.coords[i], self.coords[j]) + heat
-                    if dist <  MAX_DISTANCE:
+                    if dist < MAX_DISTANCE:
                         diff = diff_mat[i][j]
                         ux = dx / dist
                         uy = dy / dist
                         uz = dz / dist
-                        delta = Vector(ux * diff, uy * diff, uz * diff )
+                        delta = Vector(ux * diff, uy * diff, uz * diff)
                         deltas[i].add(delta)
-            
+
             # Ensure Delta Magnitude is not too large
             for i in range(len(deltas)):
                 delta = deltas[i]
@@ -194,7 +236,6 @@ class Sequence:
                     deltas[i].x *= scale
                     deltas[i].y *= scale
                     deltas[i].z *= scale
-                    
 
             for i in range(len(self.coords)):
                 self.coords[i].x += deltas[i].x
@@ -202,12 +243,70 @@ class Sequence:
                 self.coords[i].z += deltas[i].z
         return self.coords
 
-    def to_pdb(self, save_path: str = None) -> str:
+    def _adjust_coords_via_n_neighbors(self, n_iter: int) -> list[Vector]:
+        for i in range(n_iter):
+            new_distance_matrix = self.compute_distance_matrix(self.coords)
+            new_neighbors_matrix = self.compute_neighbors_matrix(
+                self.coords, N_NEAREST_NEIGBORS
+            )
+            diff_mat = new_distance_matrix - self.distance_matrix
+            # adjust coordinates based on diff
+            n_coords = len(self.coords)
+            deltas: list[Vector] = [Vector(0, 0, 0) for _ in range(n_coords)]
+            for i in range(len(self.coords)):
+                for j in range(len(self.coords)):
+                    if i == j:
+                        continue
+                    dx = self.coords[j].x - self.coords[i].x
+                    dy = self.coords[j].y - self.coords[i].y
+                    dz = self.coords[j].z - self.coords[i].z
+
+                    # use gaussian noise for heat
+                    heat = random.gauss(0, TEMPERATURE)
+
+                    dist = Sequence.distance(self.coords[i], self.coords[j]) + heat
+                    if j in new_neighbors_matrix[i]:
+                        diff = diff_mat[i][j]
+                        ux = dx / dist
+                        uy = dy / dist
+                        uz = dz / dist
+                        delta = Vector(ux * diff, uy * diff, uz * diff)
+                        deltas[i].add(delta)
+
+            # Ensure Delta Magnitude is not too large
+            for i in range(len(deltas)):
+                delta = deltas[i]
+                mag = math.sqrt(delta.x**2 + delta.y**2 + delta.z**2)
+                if mag > MAX_DELTA:
+                    scale = MAX_DELTA / mag
+                    deltas[i].x *= scale
+                    deltas[i].y *= scale
+                    deltas[i].z *= scale
+
+            for i in range(len(self.coords)):
+                self.coords[i].x += deltas[i].x
+                self.coords[i].y += deltas[i].y
+                self.coords[i].z += deltas[i].z
+        return self.coords
+
+    def adjust_coords(self, n_iter: int = 100, use_neighbors: bool = False):
+        """
+        Adjust the coordinates to match the distance matrix.
+        Can use cluster size or max distance to adjust.
+        """
+        if use_neighbors:
+            return self._adjust_coords_via_n_neighbors(n_iter)
+        else:
+            return self._adjust_coords_via_max_dist(n_iter)
+
+    def to_pdb(self, save_path: str = None, coords=None) -> str:
+        if coords is None:
+            coords = self.coords
         pdb_str = ""
-        for i in range(len(self.coords)):
-            x = self.coords[i].x
-            y = self.coords[i].y
-            z = self.coords[i].z
+        for i in range(len(coords)):
+            x = coords[i].x
+            y = coords[i].y
+            z = coords[i].z
             resname = self.seq_str[i]
             pdb_str += f"ATOM  {i+1:5d}  CA  {resname} A{1:4d}    {x:8.3f}{y:8.3f}{z:8.3f}  1.00  0.00\n"
         pdb_str += "END\n"
@@ -217,6 +316,17 @@ class Sequence:
             print(f"Saved PDB to {save_path}")
         return pdb_str
 
+    def compute_similarity_us_align(self):
+        gen_path = "generated.pdb"
+        target_path = "target.pdb"
+        self.to_pdb(gen_path, self.coords)
+        self.to_pdb(target_path, self.source_coords)
+        compute_similarity(
+            gen_path,
+            target_path
+        )
+
+    
     def align(self, target_coords):
         """
         1. Use the first 3 coordinates to create a plane for self.coords and target_coords.
@@ -366,10 +476,10 @@ class Sequence:
         plt.show()
 
     # ====== TESTING (Sequence Class) ======
-    def _coords_to_noise(self, walk:bool = True, noise_k: float = 5):
+    def _coords_to_noise(self, walk: bool = True, noise_k: float = 5):
         """
         Testing function, replace coords with random noise
-        
+
         Generate a 3D random walk.
         First coordinate is random, subsequent are 5.5A in a random direction.
         """
@@ -395,7 +505,7 @@ class Sequence:
                 coords.append(curr_pos)
             self.coords = coords
             return coords
-        else: 
+        else:
             noise = noise_k
             for i in range(len(self.coords)):
                 self.coords[i].x = random.uniform(-noise, noise)
@@ -427,7 +537,7 @@ class Sequence:
 
     def _test_adjust_coords_video(
         self,
-        iterations:int,
+        iterations: int,
         video_filename="adjustment.mp4",
         interval=33,
     ):
@@ -469,9 +579,12 @@ class Sequence:
         z_range = z_max - z_min
 
         # If a range is 0, assign a small default value.
-        if x_range == 0: x_range = 1.0
-        if y_range == 0: y_range = 1.0
-        if z_range == 0: z_range = 1.0
+        if x_range == 0:
+            x_range = 1.0
+        if y_range == 0:
+            y_range = 1.0
+        if z_range == 0:
+            z_range = 1.0
 
         x_pad = 0.25 * x_range
         y_pad = 0.25 * y_range
@@ -518,7 +631,7 @@ class Sequence:
                 print(f"Processing iteration {frame+1}/{iterations}")
 
             # Perform a single adjustment iteration.
-            self.coords = self.adjust_coords(n_iter=1)
+            self.coords = self.adjust_coords(n_iter=1, use_neighbors=USE_NEIGHBORS)
             self.coords = self.align(original_coords)
 
             # Extract adjusted coordinates.
@@ -576,14 +689,21 @@ class Sequence:
 
         # Save the animation to a video file using the FFmpeg writer.
         Writer = animation.writers["ffmpeg"]
-        writer = Writer(fps=1000 // interval, metadata=dict(artist="Your Name"), bitrate=1800)
+        writer = Writer(
+            fps=1000 // interval, metadata=dict(artist="Your Name"), bitrate=1800
+        )
         ani.save(video_filename, writer=writer)
         plt.close(fig)
 
         elapsed_time = time.time() - start_time
         print(f"Video saved to {video_filename} in {elapsed_time:.2f} seconds")
+        
+        self.compute_similarity_us_align()
 
-        self.plot([original_coords, self.coords], ["Original", "Adjusted"])
+        if OPEN_PLOT:
+            self.plot([original_coords, self.coords], ["Original", "Adjusted"])
+
+
 
 # ====== DATA PPEPERATION ======
 class SequenceDataset:
@@ -635,9 +755,18 @@ class SequenceDataset:
     def get_random_sequence(self):
         random_index = random.randint(0, len(self.real_sequences) - 1)
         seq = self.real_sequences[random_index]
-        while len(seq.coords) > SEQUENCE_SIZE+20 and len(seq.coords) < SEQUENCE_SIZE-20:
+        curr_try = 0
+        max_tries = 2000
+        while (
+            len(seq.coords) > SEQUENCE_SIZE + 20
+            and len(seq.coords) < SEQUENCE_SIZE - 20
+        ):
             random_index = random.randint(0, len(self.real_sequences) - 1)
             seq = self.real_sequences[random_index]
+            curr_try += 1
+            if curr_try > max_tries:
+                print("Max tries reached, returning random sequence.")
+                break
         seq = copy.deepcopy(seq)
         print(f"Random Sequence: {random_index}")
         return seq
@@ -683,6 +812,8 @@ if __name__ == "__main__":
     seq_dataset = SequenceDataset()
     print(len(seq_dataset.real_sequences))
     # Initialize a real sequence (Distance Matrix Assigned)
-    # seq = seq_dataset.get_random_sequence()
-    seq = seq_dataset.real_sequences[SEQUENCE_INDEX]
+    seq = seq_dataset.get_random_sequence()
+    # seq = seq_dataset.real_sequences[SEQUENCE_INDEX]
+    print(f"Sequence Length: {len(seq.seq_str)}")
     seq._test_adjust_coords_video(iterations=ITERATIONS)
+
