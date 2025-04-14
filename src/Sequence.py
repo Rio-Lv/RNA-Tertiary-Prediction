@@ -21,9 +21,9 @@ os.chdir(os.path.dirname(os.path.abspath(__file__)))
 SEQUENCE_SIZE = 40
 N_NEAREST_NEIGBORS = 30  # If using n nearest neighbors for adjustment
 MAX_DISTANCE = 30  # If using neightbor within distance for adjustment
-USE_NEIGHBORS = False  # If using n nearest neighbors for adjustment
+USE_NEIGHBORS = True  # If using n nearest neighbors for adjustment
 
-ITERATIONS = 200
+ITERATIONS = 1000
 TEMPERATURE = 0.12
 MAX_DELTA = 0.12 # Essentially cosmic speed limit
 
