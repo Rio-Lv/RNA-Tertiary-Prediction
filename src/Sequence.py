@@ -20,11 +20,11 @@ os.chdir(os.path.dirname(os.path.abspath(__file__)))
 SEQUENCE_SIZE = 70
 LABELS_PATH = "data/train_labels.csv"
 SEQUENCES_PATH = "data/train_sequences.csv"
-TEMPERATURE = 2
-MAX_DISTANCE = 20.0
+TEMPERATURE = 5
+MAX_DISTANCE = 200.0
 ITERATIONS = 500
-STEP_K = 0.01
-MAX_DELTA = 0.1
+MAX_DELTA = 0.2 # Essentially cosmic speed limit
+SEQUENCE_INDEX = 868
 
 # ====== TYPES ======
 class Vector:
@@ -150,7 +150,7 @@ class Sequence:
             + (coord1.z - coord2.z) ** 2
         ) ** 0.5
 
-    def adjust_coords(self, k: float = 0.05, n_iter: int = 100) -> list[Vector]:
+    def adjust_coords(self, n_iter: int = 100) -> list[Vector]:
         """
         Make coords match the distance matrix. Via Simulation.
         1. Calculate distance matrix from current coordinates
@@ -177,14 +177,13 @@ class Sequence:
                     heat = random.gauss(0, TEMPERATURE)
                     
                     dist = Sequence.distance(self.coords[i], self.coords[j]) + heat
-                    if dist >  MAX_DISTANCE:
-                        continue
-                    diff = diff_mat[i][j]
-                    ux = dx / dist
-                    uy = dy / dist
-                    uz = dz / dist
-                    delta = Vector(ux * diff * k, uy * diff * k, uz * diff * k)
-                    deltas[i].add(delta)
+                    if dist <  MAX_DISTANCE:
+                        diff = diff_mat[i][j]
+                        ux = dx / dist
+                        uy = dy / dist
+                        uz = dz / dist
+                        delta = Vector(ux * diff, uy * diff, uz * diff )
+                        deltas[i].add(delta)
             
             # Ensure Delta Magnitude is not too large
             for i in range(len(deltas)):
@@ -429,7 +428,6 @@ class Sequence:
     def _test_adjust_coords_video(
         self,
         iterations:int,
-        step_k:float,
         video_filename="adjustment.mp4",
         interval=33,
     ):
@@ -520,7 +518,7 @@ class Sequence:
                 print(f"Processing iteration {frame+1}/{iterations}")
 
             # Perform a single adjustment iteration.
-            self.coords = self.adjust_coords(k=step_k, n_iter=1)
+            self.coords = self.adjust_coords(n_iter=1)
             self.coords = self.align(original_coords)
 
             # Extract adjusted coordinates.
@@ -635,10 +633,13 @@ class SequenceDataset:
         return sequences
 
     def get_random_sequence(self):
-        seq = random.choice(self.real_sequences)
+        random_index = random.randint(0, len(self.real_sequences) - 1)
+        seq = self.real_sequences[random_index]
         while len(seq.coords) > SEQUENCE_SIZE+20 and len(seq.coords) < SEQUENCE_SIZE-20:
-            seq = random.choice(self.real_sequences)
-        print(seq)
+            random_index = random.randint(0, len(self.real_sequences) - 1)
+            seq = self.real_sequences[random_index]
+        seq = copy.deepcopy(seq)
+        print(f"Random Sequence: {random_index}")
         return seq
 
 
@@ -682,5 +683,6 @@ if __name__ == "__main__":
     seq_dataset = SequenceDataset()
     print(len(seq_dataset.real_sequences))
     # Initialize a real sequence (Distance Matrix Assigned)
-    seq = seq_dataset.get_random_sequence()
-    seq._test_adjust_coords_video(iterations=ITERATIONS,step_k=STEP_K)
+    # seq = seq_dataset.get_random_sequence()
+    seq = seq_dataset.real_sequences[SEQUENCE_INDEX]
+    seq._test_adjust_coords_video(iterations=ITERATIONS)
