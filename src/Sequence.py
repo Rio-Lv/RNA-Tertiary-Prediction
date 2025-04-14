@@ -17,11 +17,14 @@ import time
 os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
 # ====== CONSTANTS ======
-CLUSTER_SIZE = 70
+SEQUENCE_SIZE = 70
 LABELS_PATH = "data/train_labels.csv"
 SEQUENCES_PATH = "data/train_sequences.csv"
-TEMPERATURE = 0
+TEMPERATURE = 2
 MAX_DISTANCE = 20.0
+ITERATIONS = 500
+STEP_K = 0.01
+MAX_DELTA = 0.1
 
 # ====== TYPES ======
 class Vector:
@@ -182,6 +185,17 @@ class Sequence:
                     uz = dz / dist
                     delta = Vector(ux * diff * k, uy * diff * k, uz * diff * k)
                     deltas[i].add(delta)
+            
+            # Ensure Delta Magnitude is not too large
+            for i in range(len(deltas)):
+                delta = deltas[i]
+                mag = math.sqrt(delta.x**2 + delta.y**2 + delta.z**2)
+                if mag > MAX_DELTA:
+                    scale = MAX_DELTA / mag
+                    deltas[i].x *= scale
+                    deltas[i].y *= scale
+                    deltas[i].z *= scale
+                    
 
             for i in range(len(self.coords)):
                 self.coords[i].x += deltas[i].x
@@ -595,16 +609,16 @@ class SequenceDataset:
 
         while (
             len(sequences) < target_n_sequences
-            or curr_index + CLUSTER_SIZE > max_length
+            or curr_index + SEQUENCE_SIZE > max_length
         ):
             i = curr_index
 
             resid = label_df.iloc[i]["resid"]
-            end_resid = label_df.iloc[i + CLUSTER_SIZE]["resid"]
+            end_resid = label_df.iloc[i + SEQUENCE_SIZE]["resid"]
             if resid > end_resid:
-                curr_index += CLUSTER_SIZE
+                curr_index += SEQUENCE_SIZE
                 continue
-            labels_window = label_df.iloc[i : i + CLUSTER_SIZE]
+            labels_window = label_df.iloc[i : i + SEQUENCE_SIZE]
             seq_window = labels_window["resname"].tolist()
             seq_str = "".join(seq_window)
             x_1 = labels_window["x_1"].tolist()
@@ -622,7 +636,7 @@ class SequenceDataset:
 
     def get_random_sequence(self):
         seq = random.choice(self.real_sequences)
-        while len(seq.coords) > CLUSTER_SIZE+20 and len(seq.coords) < CLUSTER_SIZE-20:
+        while len(seq.coords) > SEQUENCE_SIZE+20 and len(seq.coords) < SEQUENCE_SIZE-20:
             seq = random.choice(self.real_sequences)
         print(seq)
         return seq
@@ -669,4 +683,4 @@ if __name__ == "__main__":
     print(len(seq_dataset.real_sequences))
     # Initialize a real sequence (Distance Matrix Assigned)
     seq = seq_dataset.get_random_sequence()
-    seq._test_adjust_coords_video(iterations=500,step_k=0.005)
+    seq._test_adjust_coords_video(iterations=ITERATIONS,step_k=STEP_K)
