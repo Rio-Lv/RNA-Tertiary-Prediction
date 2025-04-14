@@ -7,7 +7,7 @@ import pandas as pd
 import random
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
-from matplotlib import cm
+import matplotlib
 import copy
 import math
 from scipy.spatial.transform import Rotation as R
@@ -19,12 +19,12 @@ from tools import compute_similarity
 os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
 # ====== CONSTANTS ======
-SEQUENCE_SIZE = 40
+SEQUENCE_SIZE = 120
 N_NEAREST_NEIGBORS = 30  # If using n nearest neighbors for adjustment
 MAX_DISTANCE = 30  # If using neightbor within distance for adjustment
 USE_NEIGHBORS = False  # If using n nearest neighbors for adjustment
 
-ITERATIONS = 500
+ITERATIONS = 1000
 TEMPERATURE = 3
 MAX_DELTA = 0.12 # Essentially cosmic speed limit
 
@@ -57,7 +57,8 @@ class Vector:
         self.y += vector.y
         self.z += vector.z
 
-
+    def __repr__(self):
+        return f"Vector({self.x}, {self.y}, {self.z}) \n"
 # ====== SEQUENCE ======
 class Sequence:
     """
@@ -159,6 +160,7 @@ class Sequence:
         for coord in coords:
             coords_matrix.append([coord.x, coord.y, coord.z])
         return Tensor(coords_matrix)
+    
     @staticmethod
     def compute_neighbors_list(coord_list: list[Vector], n_neighbors: int) -> list[list[int]]:
         """
@@ -278,100 +280,145 @@ class Sequence:
         4. Calc all unit vectors from coord i to coord j
 
         """
-        for iter_i in range(n_iter):
-            self.correct_spine()
-            self.gravitate_centroid()
-            new_distance_matrix = self.compute_distance_matrix(self.coords)
-            diff_mat = new_distance_matrix - self.distance_matrix
+        coords_matrix = self.create_coords_matrix(self.coords)
+        recording = []
+        
+        for curr in range(n_iter):
+            print(f"Iteration {curr+1}/{n_iter}")
+            # Compute current pairwise distances between all coordinates
+            new_distance_matrix = torch.norm(coords_matrix.unsqueeze(0) - coords_matrix.unsqueeze(1), dim=2)
             
-            # heat is a random gaussian noise tensor shaped like the distance matrix
-            heat = torch.normal(0, TEMPERATURE, size=diff_mat.shape)
-            # multiply heat by the absolute value of the diff_mat
-            heat = torch.abs(diff_mat) * heat
+            # Compute difference between current distances and the original ones
+            dist_diff = new_distance_matrix - self.distance_matrix
+
+            # Add Gaussian noise scaled by the absolute distance difference
+            heat = torch.normal(0, TEMPERATURE, size=dist_diff.shape)
+            heat = torch.abs(dist_diff) * heat
             new_distance_matrix = new_distance_matrix + heat
-            # adjust coordinates based on diff
-            n_coords = len(self.coords)
-            deltas: list[Vector] = [Vector(0, 0, 0) for _ in range(n_coords)]
-            for i in range(len(self.coords)):
-                for j in range(len(self.coords)):
-                    if i == j:
-                        continue
-                    dx = self.coords[j].x - self.coords[i].x
-                    dy = self.coords[j].y - self.coords[i].y
-                    dz = self.coords[j].z - self.coords[i].z
 
-                    dist = new_distance_matrix[i][j]
-                    if dist < MAX_DISTANCE:
-                        diff = diff_mat[i][j]
-                        ux = dx / dist**2
-                        uy = dy / dist**2
-                        uz = dz / dist**2
-                        delta = Vector(ux * diff, uy * diff, uz * diff)
-                        deltas[i].add(delta)
+            # Compute pairwise coordinate differences: shape [N, N, 3]
+            d_coords = coords_matrix.unsqueeze(0) - coords_matrix.unsqueeze(1)
+            
+            # Compute unit directional vectors for each pair, avoiding division by zero with eps.
+            eps = 1e-8
+            u_vecs = d_coords / (new_distance_matrix.unsqueeze(2) + eps)  # shape: [N, N, 3]
+
+            # Multiply the unit vectors by the corresponding distance difference and sum along axis 1 to accumulate contributions.
+            # This replicates the inner loop accumulation:
+            #   deltas[i] += ( (dx/dist^2)*diff, (dy/dist^2)*diff, (dz/dist^2)*diff )
+            deltas = (u_vecs * dist_diff.unsqueeze(2)).sum(dim=1)  # shape: [N, 3]
+
+            # Enforce that each delta's magnitude does not exceed MAX_DELTA.
+            # Compute the norm (magnitude) of each delta, note: use dim=1 (the coordinate axis).
+            mags = torch.norm(deltas, dim=1, keepdim=True)  # shape: [N, 1]
+            
+            # Create a scale factor for each delta: use 1 if magnitude is below MAX_DELTA,
+            # otherwise use MAX_DELTA/mag. Using torch.minimum, we ensure the scale never exceeds 1.
+            scale = torch.minimum(MAX_DELTA / (mags + eps), torch.ones_like(mags))
+            deltas = deltas * scale
+            coords_matrix += deltas
+            
+            recording.append(coords_matrix.clone())
+            
+            # for i in range(len(self.coords)):
+            #     for j in range(len(self.coords)):
+            #         if i == j:
+            #             continue
+            #         dx = self.coords[j].x - self.coords[i].x
+            #         dy = self.coords[j].y - self.coords[i].y
+            #         dz = self.coords[j].z - self.coords[i].z
+
+            #         dist = new_distance_matrix[i][j]
+            #         if dist < MAX_DISTANCE:
+            #             diff = dist_diff[i][j]
+            #             ux = dx / dist**2
+            #             uy = dy / dist**2
+            #             uz = dz / dist**2
+            #             deltas[i][0] += ux * diff
+            #             deltas[i][1] += uy * diff
+            #             deltas[i][2] += uz * diff
 
             # Ensure Delta Magnitude is not too large
-            for i in range(len(deltas)):
-                delta = deltas[i]
-                mag = math.sqrt(delta.x**2 + delta.y**2 + delta.z**2)
-                if mag > MAX_DELTA:
-                    scale = MAX_DELTA / mag
-                    deltas[i].x *= scale
-                    deltas[i].y *= scale
-                    deltas[i].z *= scale
+            # for i in range(len(deltas)):
+            #     delta = deltas[i]
+            #     mag = math.sqrt(delta.x**2 + delta.y**2 + delta.z**2)
+            #     if mag > MAX_DELTA:
+            #         scale = MAX_DELTA / mag
+            #         deltas[i][0] *= scale
+            #         deltas[i][1] *= scale
+            #         deltas[i][2] *= scale
 
-            for i in range(len(self.coords)):
-                self.coords[i].x += deltas[i].x
-                self.coords[i].y += deltas[i].y
-                self.coords[i].z += deltas[i].z
-        return self.coords
+            # for i in range(len(self.coords)):
+            #     self.coords[i].x += deltas[i][0]
+            #     self.coords[i].y += deltas[i][1]
+            #     self.coords[i].z += deltas[i][2]
+        for i in range(len(self.coords)):
+            self.coords[i] = Vector(coords_matrix[i][0], coords_matrix[i][1], coords_matrix[i][2])
+                                    
+            
+        # print(self.coords)
+            
+        # self.plot([self.source_coords, self.coords], ["Original", "Adjusted"])
+        return self.coords, recording
 
-    def _adjust_coords_via_n_neighbors(self, n_iter: int) -> list[Vector]:
+
+    def _adjust_coords_via_n_neighbors(self, n_iter: int) -> torch.Tensor:
+        """
+        Adjust coordinates using vectorized tensor operations based on neighbor differences.
+        Assumes self.coords is a tensor of shape (N, 3) and self.distance_matrix is a tensor.
+        Returns the updated tensor of coordinates.
+        """
+        # Loop for the required number of iterations
         for _ in range(n_iter):
-            self.correct_spine()
-            self.gravitate_centroid()   
+            # Vectorize spine correction and centroid gravitation (update these methods to work on tensor)
+            self.correct_spine()         # <-- Ensure this method is refactored
+            self.gravitate_centroid()    # <-- Ensure this method is refactored
+
+            # Recompute the distance matrix and neighbor mask based on tensor coords.
             new_distance_matrix = self.compute_distance_matrix(self.coords)
-            new_neighbors_matrix = self.compute_neighbors_list(
-                self.coords, N_NEAREST_NEIGBORS
-            )
-            diff_mat = new_distance_matrix - self.distance_matrix
-            # adjust coordinates based on diff
-            n_coords = len(self.coords)
-            deltas: list[Vector] = [Vector(0, 0, 0) for _ in range(n_coords)]
-            for i in range(len(self.coords)):
-                for j in new_neighbors_matrix[i]:
-                    if i == j:
-                        continue
-                    dx = self.coords[j].x - self.coords[i].x
-                    dy = self.coords[j].y - self.coords[i].y
-                    dz = self.coords[j].z - self.coords[i].z
+            
+            # Assuming compute_neighbors_list is refactored to return a boolean tensor mask
+            new_neighbors_mask = self.compute_neighbors_mask(self.coords, N_NEAREST_NEIGBORS)
+            
+            # Compute the difference matrix between new and previous distance matrices
+            diff_mat = new_distance_matrix - self.distance_matrix  # shape (N, N)
 
-                    # use gaussian noise for heat
-                    heat = random.gauss(0, TEMPERATURE)
+            # Compute pairwise differences between coordinates (broadcasted subtraction)
+            diffs = self.coords.unsqueeze(1) - self.coords.unsqueeze(0)  # shape (N, N, 3)
+            # Compute distances and add random gaussian noise per pair
+            distances = torch.norm(diffs, dim=2)  # shape (N, N)
+            noise = torch.normal(mean=0, std=TEMPERATURE, size=distances.shape, device=distances.device)
+            distances_noised = distances + noise
 
+            # Prevent division by zero with epsilon
+            epsilon = 1e-8
+            distances_sq = distances_noised**2 + epsilon
 
-                    dist = Sequence.distance(self.coords[i], self.coords[j]) + heat
-                    if j in new_neighbors_matrix[i]:
-                        diff = diff_mat[i][j]
-                        ux = dx / dist**2
-                        uy = dy / dist**2
-                        uz = dz / dist**2
-                        delta = Vector(ux * diff, uy * diff, uz * diff)
-                        deltas[i].add(delta)
+            # Calculate the adjustment unit vectors scaled by the error diff_mat
+            adjustments = diffs / distances_sq.unsqueeze(2)  # shape (N, N, 3)
+            # Scale by the difference in distance matrices (error)
+            delta_contrib = adjustments * diff_mat.unsqueeze(2)  # shape (N, N, 3)
 
-            # Ensure Delta Magnitude is not too large
-            for i in range(len(deltas)):
-                delta = deltas[i]
-                mag = math.sqrt(delta.x**2 + delta.y**2 + delta.z**2)
-                if mag > MAX_DELTA:
-                    scale = MAX_DELTA / mag
-                    deltas[i].x *= scale
-                    deltas[i].y *= scale
-                    deltas[i].z *= scale
+            # Create a combined mask: only consider neighbor pairs (and exclude self-interactions)
+            identity_mask = ~torch.eye(self.coords.size(0), dtype=torch.bool, device=self.coords.device)
+            mask = new_neighbors_mask & identity_mask
+            delta_contrib_masked = torch.where(mask.unsqueeze(2), delta_contrib, torch.zeros_like(delta_contrib))
 
-            for i in range(len(self.coords)):
-                self.coords[i].x += deltas[i].x
-                self.coords[i].y += deltas[i].y
-                self.coords[i].z += deltas[i].z
+            # Sum contributions to get a delta for each coordinate
+            deltas = delta_contrib_masked.sum(dim=1)  # shape (N,3)
+
+            # Clip the magnitude of deltas so that no delta is larger than MAX_DELTA
+            delta_norm = torch.norm(deltas, dim=1, keepdim=True)
+            scale = torch.where(delta_norm > MAX_DELTA, MAX_DELTA / delta_norm, torch.ones_like(delta_norm))
+            deltas_clipped = deltas * scale
+
+            # Update the coordinates using the clipped delta values
+            self.coords = self.coords + deltas_clipped
+
+            # Update distance matrix for the next iteration
+            self.distance_matrix = new_distance_matrix
+            
+        # Return the updated tensor of coordinates.
         return self.coords
 
     def adjust_coords(self, n_iter: int = 100, use_neighbors: bool = False):
@@ -508,6 +555,7 @@ class Sequence:
         set_names (list[str]): Optional list of labels for each coordinate set. The length of
                                 set_names must match the number of coordinate sets.
         """
+        print("Coords List: ", coords_list)
 
         # If no coordinate sets are provided, use self.coords as a single vector set.
         if coords_list is None:
@@ -525,10 +573,11 @@ class Sequence:
         ax = fig.add_subplot(111, projection="3d")
 
         # Use a colormap to assign a distinct color to each coordinate set.
-        cmap = cm.get_cmap("tab10", len(coords_list))
+        cmap = matplotlib.colormaps.get_cmap("tab10")
 
         # Iterate over each vector set and plot the points and connecting line.
-        for i, coords in enumerate(coords_list):
+        for i in range(len(coords_list)):
+            coords = coords_list[i]
             x = [coord.x for coord in coords]
             y = [coord.y for coord in coords]
             z = [coord.z for coord in coords]
@@ -630,26 +679,35 @@ class Sequence:
         Adjust the coordinates to match the distance matrix and output a video
         showing the adjustment process over multiple iterations.
 
-        The original coordinates are shown in gray (with both scatter points
-        and a connecting line) while the adjusted coordinates are plotted in red.
+        The original coordinates are shown in gray while the adjusted coordinates
+        are plotted in red.
 
         Parameters:
         video_filename (str): The filename of the output video.
-        iterations (int): Total number of adjustment iterations (default 200).
-        interval (int): Delay between frames in milliseconds (default ~33 ms for 30fps).
+        iterations (int): Total number of adjustment iterations.
+        interval (int): Delay between frames in milliseconds.
         """
         print("Starting video generation...")
-
-        # Record the starting time.
         start_time = time.time()
-
-        # Deep copy the original coordinates.
-        original_coords = self.source_coords  # Assuming self.source_coords exists.
-
-        # Add random noise to the coordinates.
         self._coords_to_noise()
+        # Adjust the coordinates and record the intermediate states
+        _, recording = self.adjust_coords(n_iter=iterations, use_neighbors=USE_NEIGHBORS)
 
-        # Compute the bounding box based on the original coordinates with 25% padding.
+        # Store the original coordinates (as a list of Vectors)
+        original_coords: list[Vector] = self.source_coords
+
+        # Convert each recorded tensor (shape: [N, 3]) into a list of Vector objects.
+        recording_coords: list[list[Vector]] = []
+        for frame_tensor in recording:
+            frame_coords = [
+                Vector(coord[0].item(), coord[1].item(), coord[2].item())
+                for coord in frame_tensor
+            ]
+            recording_coords.append(frame_coords)
+
+        # (Removed self._coords_to_noise() to keep the adjusted coordinates intact)
+
+        # Compute bounding box limits based on the original coordinates with 25% padding.
         x_orig_vals = [coord.x for coord in original_coords]
         y_orig_vals = [coord.y for coord in original_coords]
         z_orig_vals = [coord.z for coord in original_coords]
@@ -658,18 +716,10 @@ class Sequence:
         y_min, y_max = min(y_orig_vals), max(y_orig_vals)
         z_min, z_max = min(z_orig_vals), max(z_orig_vals)
 
-        # Compute ranges and add 25% padding.
-        x_range = x_max - x_min
-        y_range = y_max - y_min
-        z_range = z_max - z_min
-
-        # If a range is 0, assign a small default value.
-        if x_range == 0:
-            x_range = 1.0
-        if y_range == 0:
-            y_range = 1.0
-        if z_range == 0:
-            z_range = 1.0
+        # Ensure nonzero ranges
+        x_range = x_max - x_min if (x_max - x_min) != 0 else 1.0
+        y_range = y_max - y_min if (y_max - y_min) != 0 else 1.0
+        z_range = z_max - z_min if (z_max - z_min) != 0 else 1.0
 
         x_pad = 0.25 * x_range
         y_pad = 0.25 * y_range
@@ -679,31 +729,21 @@ class Sequence:
         y_lim = (y_min - y_pad, y_max + y_pad)
         z_lim = (z_min - z_pad, z_max + z_pad)
 
-        # Create a 3D plotting figure.
+        # Create a 3D plot for the animation.
         fig = plt.figure()
         ax = fig.add_subplot(111, projection="3d")
 
         def init():
             ax.clear()
-            # Fix the axis limits.
             ax.set_xlim(x_lim)
             ax.set_ylim(y_lim)
             ax.set_zlim(z_lim)
-            # Plot the original coordinates as points.
+            # Plot original coordinates
             x_orig = [coord.x for coord in original_coords]
             y_orig = [coord.y for coord in original_coords]
             z_orig = [coord.z for coord in original_coords]
             ax.scatter(x_orig, y_orig, z_orig, color="gray", s=100, label="Original")
-            # Plot a gray line connecting the original coordinates.
-            ax.plot(
-                x_orig,
-                y_orig,
-                z_orig,
-                color="gray",
-                alpha=0.7,
-                linewidth=2,
-                label="Original Path",
-            )
+            ax.plot(x_orig, y_orig, z_orig, color="gray", alpha=0.7, linewidth=2, label="Original Path")
             ax.set_xlabel("X")
             ax.set_ylabel("Y")
             ax.set_zlabel("Z")
@@ -711,50 +751,31 @@ class Sequence:
             return []
 
         def update(frame):
-            # Print progress every 10 iterations.
+            # Print progress every 10 frames.
             if (frame + 1) % 10 == 0 or frame == 0:
                 print(f"Processing iteration {frame+1}/{iterations}")
 
-            # Perform a single adjustment iteration.
-            self.coords = self.adjust_coords(n_iter=1, use_neighbors=USE_NEIGHBORS)
-            self.coords = self.align(original_coords)
+            # Use recorded coordinates for the current frame.
+            current_coords = recording_coords[frame]
+            x_adj = [coord.x for coord in current_coords]
+            y_adj = [coord.y for coord in current_coords]
+            z_adj = [coord.z for coord in current_coords]
 
-            # Extract adjusted coordinates.
-            x_adj = [coord.x for coord in self.coords]
-            y_adj = [coord.y for coord in self.coords]
-            z_adj = [coord.z for coord in self.coords]
-
-            # Clear and replot. Then set fixed axis limits.
             ax.clear()
             ax.set_xlim(x_lim)
             ax.set_ylim(y_lim)
             ax.set_zlim(z_lim)
 
-            # Original (static)
+            # Replot original coordinates.
             x_orig = [coord.x for coord in original_coords]
             y_orig = [coord.y for coord in original_coords]
             z_orig = [coord.z for coord in original_coords]
             ax.scatter(x_orig, y_orig, z_orig, color="gray", s=100, label="Original")
-            ax.plot(
-                x_orig,
-                y_orig,
-                z_orig,
-                color="gray",
-                alpha=0.7,
-                linewidth=2,
-                label="Original Path",
-            )
-            # Adjusted (dynamic)
+            ax.plot(x_orig, y_orig, z_orig, color="gray", alpha=0.7, linewidth=2, label="Original Path")
+            # Plot the adjusted (dynamic) coordinates.
             ax.scatter(x_adj, y_adj, z_adj, color="red", s=100, label="Adjusted")
-            ax.plot(
-                x_adj,
-                y_adj,
-                z_adj,
-                color="red",
-                alpha=0.7,
-                linewidth=2,
-                label="Adjusted Path",
-            )
+            ax.plot(x_adj, y_adj, z_adj, color="red", alpha=0.7, linewidth=2, label="Adjusted Path")
+
             ax.set_xlabel("X")
             ax.set_ylabel("Y")
             ax.set_zlabel("Z")
@@ -772,11 +793,9 @@ class Sequence:
             repeat=False,
         )
 
-        # Save the animation to a video file using the FFmpeg writer.
+        # Save the video using FFmpeg.
         Writer = animation.writers["ffmpeg"]
-        writer = Writer(
-            fps=1000 // interval, metadata=dict(artist="Your Name"), bitrate=1800
-        )
+        writer = Writer(fps=1000 // interval, metadata=dict(artist="Your Name"), bitrate=1800)
         ani.save(video_filename, writer=writer)
         plt.close(fig)
 
@@ -787,7 +806,6 @@ class Sequence:
 
         if OPEN_PLOT:
             self.plot([original_coords, self.coords], ["Original", "Adjusted"])
-
 
 
 # ====== DATA PPEPERATION ======
@@ -900,5 +918,7 @@ if __name__ == "__main__":
     seq = seq_dataset.get_random_sequence()
     # seq = seq_dataset.real_sequences[SEQUENCE_INDEX]
     print(f"Sequence Length: {len(seq.seq_str)}")
+    # seq._coords_to_noise()
+    # seq.adjust_coords(n_iter=100, use_neighbors=USE_NEIGHBORS)
     seq._test_adjust_coords_video(iterations=ITERATIONS)
 
