@@ -20,8 +20,8 @@ os.chdir(os.path.dirname(os.path.abspath(__file__)))
 # ====== CONSTANTS ======
 SEQUENCE_SIZE = 40
 N_NEAREST_NEIGBORS = 20  # If using n nearest neighbors for adjustment
-MAX_DISTANCE = 30.0  # If using neightbor within distance for adjustment
-USE_NEIGHBORS = True  # If using n nearest neighbors for adjustment
+MAX_DISTANCE = 20.0  # If using neightbor within distance for adjustment
+USE_NEIGHBORS = False  # If using n nearest neighbors for adjustment
 
 ITERATIONS = 1000
 TEMPERATURE = 0.12
@@ -34,6 +34,7 @@ SEQUENCE_INDEX = 868
 MAX_SPINE_SPACE = 6.5  # Maximum distance between two points in the spine
 
 OPEN_PLOT = True  # If True, will open a plot window for each sequence
+GRAVITY = 0.01
 
 
 # ====== TYPES ======
@@ -223,6 +224,37 @@ class Sequence:
                     self.coords[j].z += uz * d
         return self.coords
     
+    def gravitate_centroid(self):
+        """
+        Move All Coordinates Very slightly towards the centroid.
+        1. calculate centroid
+        2. calculate the difference vector
+        3. calculate unit vector towards centroid
+        4. move each coord by the difference vector
+        """
+        centroid = Vector(0, 0, 0)
+        for coord in self.coords:
+            centroid.x += coord.x
+            centroid.y += coord.y
+            centroid.z += coord.z
+        centroid.x /= len(self.coords)
+        centroid.y /= len(self.coords)
+        centroid.z /= len(self.coords)
+        # Calculate the difference vector
+        for coord in self.coords:
+            dx = centroid.x - coord.x
+            dy = centroid.y - coord.y
+            dz = centroid.z - coord.z
+            dist = math.sqrt(dx**2 + dy**2 + dz**2)
+            ux = dx / dist
+            uy = dy / dist
+            uz = dz / dist
+            # Move the coord by the difference vector
+            coord.x += ux * GRAVITY
+            coord.y += uy * GRAVITY
+            coord.z += uz * GRAVITY
+        return self.coords
+        
     def _adjust_coords_via_max_dist(self, n_iter: int) -> list[Vector]:
         """
         Make coords match the distance matrix. Via Simulation.
@@ -234,6 +266,7 @@ class Sequence:
         """
         for iter_i in range(n_iter):
             self.correct_spine()
+            self.gravitate_centroid()
             new_distance_matrix = self.compute_distance_matrix(self.coords)
             diff_mat = new_distance_matrix - self.distance_matrix
             # adjust coordinates based on diff
@@ -278,6 +311,7 @@ class Sequence:
     def _adjust_coords_via_n_neighbors(self, n_iter: int) -> list[Vector]:
         for i in range(n_iter):
             self.correct_spine()
+            self.gravitate_centroid()   
             new_distance_matrix = self.compute_distance_matrix(self.coords)
             new_neighbors_matrix = self.compute_neighbors_matrix(
                 self.coords, N_NEAREST_NEIGBORS
