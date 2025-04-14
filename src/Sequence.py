@@ -19,9 +19,9 @@ from tools import compute_similarity
 os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
 # ====== CONSTANTS ======
-SEQUENCE_SIZE = 40
-N_NEAREST_NEIGBORS = 30  # If using n nearest neighbors for adjustment
-MAX_DISTANCE = 30  # If using neightbor within distance for adjustment
+SEQUENCE_SIZE = 70
+# N_NEAREST_NEIGBORS = 30  # If using n nearest neighbors for adjustment
+MAX_DISTANCE = 15  # If using neightbor within distance for adjustment
 USE_NEIGHBORS = False  # If using n nearest neighbors for adjustment
 
 ITERATIONS = 500
@@ -370,80 +370,6 @@ class Sequence:
         # self.plot([self.source_coords, self.coords], ["Original", "Adjusted"])
         return self.coords, recording
 
-    # def _adjust_coords_via_n_neighbors(self, n_iter: int) -> torch.Tensor:
-    #     """
-    #     Adjust coordinates using vectorized tensor operations based on neighbor differences.
-    #     Assumes self.coords is a tensor of shape (N, 3) and self.distance_matrix is a tensor.
-    #     Returns the updated tensor of coordinates.
-    #     """
-    #     # Loop for the required number of iterations
-    #     for _ in range(n_iter):
-    #         # Vectorize spine correction and centroid gravitation (update these methods to work on tensor)
-    #         self.correct_spine()  # <-- Ensure this method is refactored
-    #         self.gravitate_centroid()  # <-- Ensure this method is refactored
-
-    #         # Recompute the distance matrix and neighbor mask based on tensor coords.
-    #         new_distance_matrix = self.compute_distance_matrix(self.coords)
-
-    #         # Assuming compute_neighbors_list is refactored to return a boolean tensor mask
-    #         new_neighbors_mask = self.compute_neighbors_mask(
-    #             self.coords, N_NEAREST_NEIGBORS
-    #         )
-
-    #         # Compute the difference matrix between new and previous distance matrices
-    #         diff_mat = new_distance_matrix - self.distance_matrix  # shape (N, N)
-
-    #         # Compute pairwise differences between coordinates (broadcasted subtraction)
-    #         diffs = self.coords.unsqueeze(1) - self.coords.unsqueeze(
-    #             0
-    #         )  # shape (N, N, 3)
-    #         # Compute distances and add random gaussian noise per pair
-    #         distances = torch.norm(diffs, dim=2)  # shape (N, N)
-    #         noise = torch.normal(
-    #             mean=0, std=TEMPERATURE, size=distances.shape, device=distances.device
-    #         )
-    #         distances_noised = distances + noise
-
-    #         # Prevent division by zero with epsilon
-    #         epsilon = 1e-8
-    #         distances_sq = distances_noised**2 + epsilon
-
-    #         # Calculate the adjustment unit vectors scaled by the error diff_mat
-    #         adjustments = diffs / distances_sq.unsqueeze(2)  # shape (N, N, 3)
-    #         # Scale by the difference in distance matrices (error)
-    #         delta_contrib = adjustments * diff_mat.unsqueeze(2)  # shape (N, N, 3)
-
-    #         # Create a combined mask: only consider neighbor pairs (and exclude self-interactions)
-    #         identity_mask = ~torch.eye(
-    #             self.coords.size(0), dtype=torch.bool, device=self.coords.device
-    #         )
-    #         mask = new_neighbors_mask & identity_mask
-    #         delta_contrib_masked = torch.where(
-    #             mask.unsqueeze(2), delta_contrib, torch.zeros_like(delta_contrib)
-    #         )
-
-    #         # Sum contributions to get a delta for each coordinate
-    #         deltas = delta_contrib_masked.sum(dim=1)  # shape (N,3)
-
-    #         # Clip the magnitude of deltas so that no delta is larger than MAX_DELTA
-    #         delta_norm = torch.norm(deltas, dim=1, keepdim=True)
-    #         scale = torch.where(
-    #             delta_norm > MAX_DELTA,
-    #             MAX_DELTA / delta_norm,
-    #             torch.ones_like(delta_norm),
-    #         )
-    #         deltas_clipped = deltas * scale
-
-    #         # Update the coordinates using the clipped delta values
-    #         self.coords = self.coords + deltas_clipped
-
-    #         # Update distance matrix for the next iteration
-    #         self.distance_matrix = new_distance_matrix
-
-    #     # Return the updated tensor of coordinates.
-
-    #     return self.coords
-
     def adjust_coords(
         self, n_iter: int = 100, use_neighbors: bool = False
     ) -> tuple[list[Vector], list[Tensor]]:
@@ -452,10 +378,6 @@ class Sequence:
         Can use cluster size or max distance to adjust.
         """
         return self._adjust_coords_via_max_dist(n_iter)
-        # if use_neighbors:
-        # else:
-        #     return self._adjust_coords_via_max_dist(n_iter)
-        # return coords_adjusted
 
     @staticmethod
     def to_pdb(coords: list[Vector], seq_str: str, save_path: str = None) -> str:
@@ -465,8 +387,8 @@ class Sequence:
             y = coords[i].y
             z = coords[i].z
             resname = seq_str[i]
-            pdb_str += f"ATOM  {i+1:5d}  CA  {resname} A{i:4d}    {x:8.3f}{y:8.3f}{z:8.3f}  1.00  0.00\n"
-        pdb_str += "END\n"
+            pdb_str += f"ATOM  {i+1:5d}  CA   {resname} A{i:4d}    {x:8.3f}{y:8.3f}{z:8.3f}  1.00  0.00\n"
+     
         if save_path:
             with open(save_path, "w") as f:
                 f.write(pdb_str)
@@ -477,10 +399,10 @@ class Sequence:
     def compute_similarity_us_align(
         genereated_coords: list[Vector], target_coords: list[Vector], seq_str: str
     ):
-        gen_path = "data/generated.pdb"
-        target_path = "data/target.pdb"
+        gen_path = "seq_output/seq_generated.pdb"
+        target_path = "seq_output/seq_target.pdb"
         Sequence.to_pdb(coords=genereated_coords, seq_str=seq_str, save_path=gen_path)
-        Sequence.to_pdb(coords=target_coords, seq_str=seq_str, save_path=gen_path)
+        Sequence.to_pdb(coords=target_coords, seq_str=seq_str, save_path=target_path)
         compute_similarity(gen_path, target_path)
 
     @staticmethod
@@ -584,6 +506,8 @@ class Sequence:
         # If no coordinate sets are provided, use self.coords as a single vector set.
         if coords_list is None:
             coords_list = [self.coords]
+            
+        coords_list = [self.align(coords, self.source_coords) for coords in coords_list]
 
         # If no set names are provided, use default names.
         if set_names is None:
@@ -696,7 +620,7 @@ class Sequence:
     def _test_adjust_coords_video(
         self,
         iterations: int,
-        video_filename="adjustment.mp4",
+        video_filename="seq_output/adjustment.mp4",
         interval=33,
     ):
         """
