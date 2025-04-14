@@ -25,7 +25,7 @@ MAX_DISTANCE = 12  # If using neightbor within distance for adjustment
 USE_NEIGHBORS = False  # If using n nearest neighbors for adjustment
 
 ITERATIONS = 20000
-TEMPERATURE = 0.3
+TEMPERATURE = 0.5
 MAX_DELTA = 0.005
 LABELS_PATH = "data/train_labels.csv"
 SEQUENCES_PATH = "data/train_sequences.csv"
