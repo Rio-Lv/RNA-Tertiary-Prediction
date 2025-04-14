@@ -18,20 +18,20 @@ from tools import compute_similarity
 os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
 # ====== CONSTANTS ======
-SEQUENCE_SIZE = 70
-N_NEAREST_NEIGBORS = 32  # If using n nearest neighbors for adjustment
+SEQUENCE_SIZE = 40
+N_NEAREST_NEIGBORS = 20  # If using n nearest neighbors for adjustment
 MAX_DISTANCE = 30.0  # If using neightbor within distance for adjustment
 USE_NEIGHBORS = True  # If using n nearest neighbors for adjustment
 
 ITERATIONS = 500
-TEMPERATURE = 2
-MAX_DELTA = 0.2  # Essentially cosmic speed limit
+TEMPERATURE = 0
+MAX_DELTA = 0.08 # Essentially cosmic speed limit
 
 LABELS_PATH = "data/train_labels.csv"
 SEQUENCES_PATH = "data/train_sequences.csv"
 SEQUENCE_INDEX = 868
 
-MAX_SPINE_SPACE = 6.0  # Maximum distance between two points in the spine
+MAX_SPINE_SPACE = 6.5  # Maximum distance between two points in the spine
 
 OPEN_PLOT = True  # If True, will open a plot window for each sequence
 
@@ -248,7 +248,7 @@ class Sequence:
                     dz = self.coords[j].z - self.coords[i].z
 
                     # use gaussian noise for heat
-                    heat = random.gauss(0, TEMPERATURE)
+                    heat = random.gauss(0, TEMPERATURE)*math.sqrt(abs(diff_mat[i][j]))
 
                     dist = Sequence.distance(self.coords[i], self.coords[j]) + heat
                     if dist < MAX_DISTANCE:
@@ -295,7 +295,8 @@ class Sequence:
                     dz = self.coords[j].z - self.coords[i].z
 
                     # use gaussian noise for heat
-                    heat = random.gauss(0, TEMPERATURE)
+                    heat = random.gauss(0, TEMPERATURE)*math.sqrt(abs(diff_mat[i][j]))
+
 
                     dist = Sequence.distance(self.coords[i], self.coords[j]) + heat
                     if j in new_neighbors_matrix[i]:
