@@ -2,6 +2,7 @@ import os
 from typing import Optional
 from torch import Tensor
 from torch import nn
+import torch
 import pandas as pd
 import random
 import matplotlib.pyplot as plt
@@ -21,10 +22,10 @@ os.chdir(os.path.dirname(os.path.abspath(__file__)))
 SEQUENCE_SIZE = 40
 N_NEAREST_NEIGBORS = 30  # If using n nearest neighbors for adjustment
 MAX_DISTANCE = 30  # If using neightbor within distance for adjustment
-USE_NEIGHBORS = True  # If using n nearest neighbors for adjustment
+USE_NEIGHBORS = False  # If using n nearest neighbors for adjustment
 
-ITERATIONS = 1000
-TEMPERATURE = 0.12
+ITERATIONS = 500
+TEMPERATURE = 3
 MAX_DELTA = 0.12 # Essentially cosmic speed limit
 
 LABELS_PATH = "data/train_labels.csv"
@@ -69,6 +70,7 @@ class Sequence:
     source_coords: Optional[list[Vector]]
     distance_matrix: Tensor
     encoding: Tensor
+    coords_matrix: Tensor
 
     def __init__(self, seq_str: str, seq_id: str = None, coords: list[Vector] = None):
         self.seq_str = seq_str
@@ -79,6 +81,7 @@ class Sequence:
         )
         self.source_coords = copy.deepcopy(self.coords)
         self.distance_matrix = self.compute_distance_matrix(self.coords)
+        self.coords_matrix = self.create_coords_matrix(self.coords)
 
     def __repr__(self):
         msg = "\n"
@@ -146,7 +149,18 @@ class Sequence:
         return Tensor(distance_matrix)
 
     @staticmethod
-    def compute_neighbors_matrix(coord_list: list[Vector], n_neighbors: int) -> Tensor:
+    def create_coords_matrix(coords: list[Vector]) -> Tensor:
+        """
+        Create a tensor from a list of coordinates.
+        :param coords: List of coordinates
+        :return: Tensor of coordinates
+        """
+        coords_matrix = []
+        for coord in coords:
+            coords_matrix.append([coord.x, coord.y, coord.z])
+        return Tensor(coords_matrix)
+    @staticmethod
+    def compute_neighbors_list(coord_list: list[Vector], n_neighbors: int) -> list[list[int]]:
         """
         Compute the n nearest neighbors for each coordinate.
 
@@ -179,7 +193,7 @@ class Sequence:
             nearest_indices = [idx for idx, dist in distances[:n_neighbors]]
             neighbors.append(nearest_indices)
 
-        return Tensor(neighbors)
+        return neighbors
 
     @staticmethod
     def distance(coord1: Vector, coord2: Vector) -> float:
@@ -269,6 +283,12 @@ class Sequence:
             self.gravitate_centroid()
             new_distance_matrix = self.compute_distance_matrix(self.coords)
             diff_mat = new_distance_matrix - self.distance_matrix
+            
+            # heat is a random gaussian noise tensor shaped like the distance matrix
+            heat = torch.normal(0, TEMPERATURE, size=diff_mat.shape)
+            # multiply heat by the absolute value of the diff_mat
+            heat = torch.abs(diff_mat) * heat
+            new_distance_matrix = new_distance_matrix + heat
             # adjust coordinates based on diff
             n_coords = len(self.coords)
             deltas: list[Vector] = [Vector(0, 0, 0) for _ in range(n_coords)]
@@ -280,10 +300,7 @@ class Sequence:
                     dy = self.coords[j].y - self.coords[i].y
                     dz = self.coords[j].z - self.coords[i].z
 
-                    # use gaussian noise for heat
-                    heat = random.gauss(0, TEMPERATURE)
-
-                    dist = Sequence.distance(self.coords[i], self.coords[j]) + heat
+                    dist = new_distance_matrix[i][j]
                     if dist < MAX_DISTANCE:
                         diff = diff_mat[i][j]
                         ux = dx / dist**2
@@ -313,15 +330,15 @@ class Sequence:
             self.correct_spine()
             self.gravitate_centroid()   
             new_distance_matrix = self.compute_distance_matrix(self.coords)
-            new_neighbors_matrix = self.compute_neighbors_matrix(
+            new_neighbors_matrix = self.compute_neighbors_list(
                 self.coords, N_NEAREST_NEIGBORS
             )
             diff_mat = new_distance_matrix - self.distance_matrix
             # adjust coordinates based on diff
             n_coords = len(self.coords)
             deltas: list[Vector] = [Vector(0, 0, 0) for _ in range(n_coords)]
-            for i in range(len(self.coords) - N_NEAREST_NEIGBORS):
-                for j in range(i, i + N_NEAREST_NEIGBORS):
+            for i in range(len(self.coords)):
+                for j in new_neighbors_matrix[i]:
                     if i == j:
                         continue
                     dx = self.coords[j].x - self.coords[i].x
