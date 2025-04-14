@@ -18,13 +18,13 @@ from tools import compute_similarity
 os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
 # ====== CONSTANTS ======
-SEQUENCE_SIZE = 100
-N_NEAREST_NEIGBORS = 20  # If using n nearest neighbors for adjustment
+SEQUENCE_SIZE = 70
+N_NEAREST_NEIGBORS = 32  # If using n nearest neighbors for adjustment
 MAX_DISTANCE = 30.0  # If using neightbor within distance for adjustment
-USE_NEIGHBORS = False  # If using n nearest neighbors for adjustment
+USE_NEIGHBORS = True  # If using n nearest neighbors for adjustment
 
 ITERATIONS = 500
-TEMPERATURE = 10
+TEMPERATURE = 2
 MAX_DELTA = 0.2  # Essentially cosmic speed limit
 
 LABELS_PATH = "data/train_labels.csv"
@@ -201,7 +201,7 @@ class Sequence:
         4. Calc all unit vectors from coord i to coord j
 
         """
-        for i in range(n_iter):
+        for iter_i in range(n_iter):
             new_distance_matrix = self.compute_distance_matrix(self.coords)
             diff_mat = new_distance_matrix - self.distance_matrix
             # adjust coordinates based on diff
@@ -221,9 +221,9 @@ class Sequence:
                     dist = Sequence.distance(self.coords[i], self.coords[j]) + heat
                     if dist < MAX_DISTANCE:
                         diff = diff_mat[i][j]
-                        ux = dx / dist
-                        uy = dy / dist
-                        uz = dz / dist
+                        ux = dx / dist**2
+                        uy = dy / dist**2
+                        uz = dz / dist**2
                         delta = Vector(ux * diff, uy * diff, uz * diff)
                         deltas[i].add(delta)
 
@@ -267,9 +267,9 @@ class Sequence:
                     dist = Sequence.distance(self.coords[i], self.coords[j]) + heat
                     if j in new_neighbors_matrix[i]:
                         diff = diff_mat[i][j]
-                        ux = dx / dist
-                        uy = dy / dist
-                        uz = dz / dist
+                        ux = dx / dist**2
+                        uy = dy / dist**2
+                        uz = dz / dist**2
                         delta = Vector(ux * diff, uy * diff, uz * diff)
                         deltas[i].add(delta)
 
@@ -308,7 +308,7 @@ class Sequence:
             y = coords[i].y
             z = coords[i].z
             resname = self.seq_str[i]
-            pdb_str += f"ATOM  {i+1:5d}  CA  {resname} A{1:4d}    {x:8.3f}{y:8.3f}{z:8.3f}  1.00  0.00\n"
+            pdb_str += f"ATOM  {i+1:5d}  CA  {resname} A{i:4d}    {x:8.3f}{y:8.3f}{z:8.3f}  1.00  0.00\n"
         pdb_str += "END\n"
         if save_path:
             with open(save_path, "w") as f:
@@ -749,7 +749,7 @@ class SequenceDataset:
             sequences.append(seq)
             curr_index += 1
         self.real_sequences = sequences
-        [print(seq) for seq in sequences[:5]]
+        # [print(seq) for seq in sequences[:5]]
         return sequences
 
     def get_random_sequence(self):
