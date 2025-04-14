@@ -662,4 +662,4 @@ if __name__ == "__main__":
     print(len(seq_dataset.real_sequences))
     # Initialize a real sequence (Distance Matrix Assigned)
     seq = seq_dataset.get_random_sequence()
-    seq._test_adjust_coords_video(iterations=500,step_k=0.01)
+    seq._test_adjust_coords_video(iterations=500,step_k=0.007)
