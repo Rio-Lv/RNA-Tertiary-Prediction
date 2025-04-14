@@ -155,7 +155,7 @@ class Sequence:
         4. Calc all unit vectors from coord i to coord j
 
         """
-        for _ in range(n_iter):
+        for i in range(n_iter):
             new_distance_matrix = self.compute_distance_matrix(self.coords)
             diff_mat = new_distance_matrix - self.distance_matrix
             # adjust coordinates based on diff
@@ -168,6 +168,8 @@ class Sequence:
                     dx = self.coords[j].x - self.coords[i].x
                     dy = self.coords[j].y - self.coords[i].y
                     dz = self.coords[j].z - self.coords[i].z
+                    
+                    
                     dist = Sequence.distance(self.coords[i], self.coords[j]) + random.uniform(-heat, heat)
                     diff = diff_mat[i][j]
                     ux = dx / dist
@@ -662,4 +664,4 @@ if __name__ == "__main__":
     print(len(seq_dataset.real_sequences))
     # Initialize a real sequence (Distance Matrix Assigned)
     seq = seq_dataset.get_random_sequence()
-    seq._test_adjust_coords_video(iterations=500,step_k=0.007)
+    seq._test_adjust_coords_video(iterations=300,step_k=0.01)
