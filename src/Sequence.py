@@ -19,12 +19,12 @@ from tools import compute_similarity
 os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
 # ====== CONSTANTS ======
-SEQUENCE_SIZE = 70
+SEQUENCE_SIZE = 100
 # N_NEAREST_NEIGBORS = 30  # If using n nearest neighbors for adjustment
-MAX_DISTANCE = 15  # If using neightbor within distance for adjustment
+MAX_DISTANCE = 16  # If using neightbor within distance for adjustment
 USE_NEIGHBORS = False  # If using n nearest neighbors for adjustment
 
-ITERATIONS = 500
+ITERATIONS = 2000
 TEMPERATURE = 0.01
 MAX_DELTA = 0.1  # Essentially cosmic speed limit
 
@@ -388,7 +388,7 @@ class Sequence:
             z = coords[i].z
             resname = seq_str[i]
             pdb_str += f"ATOM  {i+1:5d}  CA   {resname} A{i:4d}    {x:8.3f}{y:8.3f}{z:8.3f}  1.00  0.00\n"
-     
+
         if save_path:
             with open(save_path, "w") as f:
                 f.write(pdb_str)
@@ -506,7 +506,7 @@ class Sequence:
         # If no coordinate sets are provided, use self.coords as a single vector set.
         if coords_list is None:
             coords_list = [self.coords]
-            
+
         coords_list = [self.align(coords, self.source_coords) for coords in coords_list]
 
         # If no set names are provided, use default names.
@@ -620,6 +620,7 @@ class Sequence:
     def _test_adjust_coords_video(
         self,
         iterations: int,
+        speed: int,
         video_filename="seq_output/adjustment.mp4",
         interval=33,
     ):
@@ -633,12 +634,14 @@ class Sequence:
         Parameters:
         video_filename (str): The filename of the output video.
         iterations (int): Total number of adjustment iterations.
+        speed (int): Render every Nth frame (downsampling factor for recording).
         interval (int): Delay between frames in milliseconds.
         """
         print("Starting video generation...")
         start_time = time.time()
         self._coords_to_noise()
-        # Adjust the coordinates and record the intermediate states
+
+        # Adjust the coordinates and record the intermediate states.
         coords_adjusted, recording = self.adjust_coords(
             n_iter=iterations, use_neighbors=USE_NEIGHBORS
         )
@@ -649,7 +652,7 @@ class Sequence:
             seq_str=self.seq_str,
         )
 
-        # Store the original coordinates (as a list of Vectors)
+        # Store the original coordinates (as a list of Vectors).
         original_coords: list[Vector] = self.source_coords
 
         # Convert each recorded tensor (shape: [N, 3]) into a list of Vector objects.
@@ -661,7 +664,9 @@ class Sequence:
             ]
             recording_coords.append(frame_coords)
 
-        # (Removed self._coords_to_noise() to keep the adjusted coordinates intact)
+        # Downsample the recording so that only every Nth frame is rendered.
+        recording_coords = recording_coords[::speed]
+        num_frames = len(recording_coords)
 
         # Compute bounding box limits based on the original coordinates with 25% padding.
         x_orig_vals = [coord.x for coord in original_coords]
@@ -672,7 +677,7 @@ class Sequence:
         y_min, y_max = min(y_orig_vals), max(y_orig_vals)
         z_min, z_max = min(z_orig_vals), max(z_orig_vals)
 
-        # Ensure nonzero ranges
+        # Ensure nonzero ranges.
         x_range = x_max - x_min if (x_max - x_min) != 0 else 1.0
         y_range = y_max - y_min if (y_max - y_min) != 0 else 1.0
         z_range = z_max - z_min if (z_max - z_min) != 0 else 1.0
@@ -694,7 +699,7 @@ class Sequence:
             ax.set_xlim(x_lim)
             ax.set_ylim(y_lim)
             ax.set_zlim(z_lim)
-            # Plot original coordinates
+            # Plot original coordinates.
             x_orig = [coord.x for coord in original_coords]
             y_orig = [coord.y for coord in original_coords]
             z_orig = [coord.z for coord in original_coords]
@@ -717,9 +722,9 @@ class Sequence:
         def update(frame):
             # Print progress every 10 frames.
             if (frame + 1) % 10 == 0 or frame == 0:
-                print(f"Processing iteration {frame+1}/{iterations}")
+                print(f"Processing frame {frame+1}/{num_frames}")
 
-            # Use recorded coordinates for the current frame.
+            # Optionally, align the current recorded frame to the original coordinates.
             current_coords = self.align(recording_coords[frame], original_coords)
             x_adj = [coord.x for coord in current_coords]
             y_adj = [coord.y for coord in current_coords]
@@ -730,7 +735,7 @@ class Sequence:
             ax.set_ylim(y_lim)
             ax.set_zlim(z_lim)
 
-            # Replot original coordinates.
+            # Plot the static original coordinates.
             x_orig = [coord.x for coord in original_coords]
             y_orig = [coord.y for coord in original_coords]
             z_orig = [coord.z for coord in original_coords]
@@ -759,21 +764,21 @@ class Sequence:
             ax.set_xlabel("X")
             ax.set_ylabel("Y")
             ax.set_zlabel("Z")
-            ax.set_title(f"Adjustment Iteration {frame+1}")
+            ax.set_title(f"Adjustment Frame {frame+1}")
             ax.legend(loc="upper right")
             return []
 
-        # Create the animation object.
+        # Create the animation object using the decimated recording.
         ani = animation.FuncAnimation(
             fig,
             update,
-            frames=range(iterations),
+            frames=range(num_frames),
             init_func=init,
             interval=interval,
             repeat=False,
         )
 
-        # Save the video using FFmpeg.
+        # Save the video using the FFmpeg writer.
         Writer = animation.writers["ffmpeg"]
         writer = Writer(
             fps=1000 // interval, metadata=dict(artist="Your Name"), bitrate=1800
@@ -900,4 +905,4 @@ if __name__ == "__main__":
     print(f"Sequence Length: {len(seq.seq_str)}")
     # seq._coords_to_noise()
     # seq.adjust_coords(n_iter=100, use_neighbors=USE_NEIGHBORS)
-    seq._test_adjust_coords_video(iterations=ITERATIONS)
+    seq._test_adjust_coords_video(iterations=ITERATIONS, speed=5)
