@@ -31,6 +31,8 @@ LABELS_PATH = "data/train_labels.csv"
 SEQUENCES_PATH = "data/train_sequences.csv"
 SEQUENCE_INDEX = 868
 
+MAX_SPINE_SPACE = 6.0  # Maximum distance between two points in the spine
+
 OPEN_PLOT = True  # If True, will open a plot window for each sequence
 
 
@@ -192,6 +194,35 @@ class Sequence:
             + (coord1.z - coord2.z) ** 2
         ) ** 0.5
 
+    def correct_spine(self):
+        """ 
+        sometimes adjustments make spine coords too far
+        so we need to correct them.
+        1. loop through i and i+1
+        2. if distance is greater than 7A 
+        3. calculate the difference vector
+        4. normalize the vector
+        5. multiply by 7A
+        6. move [i+1:] by the difference vector
+        7. return the new coords
+        """
+        for i in range(len(self.coords) - 1):
+            dist = Sequence.distance(self.coords[i], self.coords[i + 1])
+            if dist > MAX_SPINE_SPACE:
+                dx = self.coords[i + 1].x - self.coords[i].x
+                dy = self.coords[i + 1].y - self.coords[i].y
+                dz = self.coords[i + 1].z - self.coords[i].z
+                ux = dx / dist
+                uy = dy / dist
+                uz = dz / dist
+                d =  MAX_SPINE_SPACE - dist
+                # Move the next points by the difference vector
+                for j in range(i + 1, len(self.coords)):
+                    self.coords[j].x += ux * d
+                    self.coords[j].y += uy * d
+                    self.coords[j].z += uz * d
+        return self.coords
+    
     def _adjust_coords_via_max_dist(self, n_iter: int) -> list[Vector]:
         """
         Make coords match the distance matrix. Via Simulation.
@@ -202,6 +233,7 @@ class Sequence:
 
         """
         for iter_i in range(n_iter):
+            self.correct_spine()
             new_distance_matrix = self.compute_distance_matrix(self.coords)
             diff_mat = new_distance_matrix - self.distance_matrix
             # adjust coordinates based on diff
@@ -245,6 +277,7 @@ class Sequence:
 
     def _adjust_coords_via_n_neighbors(self, n_iter: int) -> list[Vector]:
         for i in range(n_iter):
+            self.correct_spine()
             new_distance_matrix = self.compute_distance_matrix(self.coords)
             new_neighbors_matrix = self.compute_neighbors_matrix(
                 self.coords, N_NEAREST_NEIGBORS
