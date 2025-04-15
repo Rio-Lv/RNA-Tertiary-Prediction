@@ -19,14 +19,14 @@ from tools import compute_similarity
 os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
 # ====== CONSTANTS ======
-SEQUENCE_SIZE = 120
+SEQUENCE_SIZE = 300
 # N_NEAREST_NEIGBORS = 30  # If using n nearest neighbors for adjustment
 MAX_DISTANCE = 32  # If using neightbor within distance for adjustment
 USE_NEIGHBORS = False  # If using n nearest neighbors for adjustment
 
-ITERATIONS = 10000
-TEMPERATURE = 0.3
-MAX_DELTA = 0.01
+ITERATIONS = 3000
+TEMPERATURE = 0.2
+MAX_DELTA = 0.05
 LABELS_PATH = "data/train_labels.csv"
 SEQUENCES_PATH = "data/train_sequences.csv"
 SEQUENCE_INDEX = 868
@@ -34,8 +34,10 @@ SEQUENCE_INDEX = 868
 MAX_SPINE_SPACE = 7.7  # Maximum distance between two points in the spine
 
 OPEN_PLOT = True  # If True, will open a plot window for each sequence
-GRAVITY = 0.01
-VIDEO_SPEED = 100  # Speed of the video in frames per second
+GRAVITY = 0.001
+VIDEO_SPEED = 20  # Speed of the video in frames per second
+
+DIR_BIAS_X = 1  # Bias for the x direction in random walk
 
 # NOISY_SOURCE_MATRIX = True
 
@@ -277,6 +279,32 @@ class Sequence:
                 coords_matrix[i + 1:] = coords_matrix[i + 1:] + correction
         return coords_matrix
     
+    @staticmethod
+    def gravitate_centroid_matrix(coord_matrix: Tensor) -> Tensor:
+        """
+        Move all coordinates slightly towards the centroid.
+        1. Calculate centroid.
+        2. Calculate the difference vector.
+        3. Calculate unit vector towards centroid.
+        4. Move each coord by the difference vector.
+
+        Args:
+            coord_matrix (Tensor): A tensor of shape [N, 3] containing the coordinates.
+
+        Returns:
+            Tensor: The updated coordinate matrix.
+        """
+        centroid = torch.mean(coord_matrix, dim=0)
+        # Calculate the difference vector
+        diff_vector = centroid - coord_matrix
+        # Normalize to get unit vectors
+        dist = torch.norm(diff_vector, dim=1, keepdim=True)
+        unit_vectors = diff_vector / (dist + 1e-8)
+        # Move each coordinate slightly towards the centroid
+        coord_matrix += unit_vectors * GRAVITY
+        return coord_matrix
+        
+    
     def gravitate_centroid(self):
         """
         Move All Coordinates Very slightly towards the centroid.
@@ -322,6 +350,7 @@ class Sequence:
 
         for curr in range(n_iter):
             self.correct_spine_matrix(coords_matrix)
+            self.gravitate_centroid_matrix(coords_matrix)
             print(f"Iteration {curr+1}/{n_iter}")
             # Compute current pairwise distances: shape [N, N]
             new_distance_matrix = torch.norm(
@@ -569,7 +598,7 @@ class Sequence:
             n = len(self.seq_str)
 
             r = 5.5
-            dir_bias_x = 100
+            dir_bias_x = DIR_BIAS_X
             coords = []
             curr_pos = Vector(
                 random.uniform(-r, r),
