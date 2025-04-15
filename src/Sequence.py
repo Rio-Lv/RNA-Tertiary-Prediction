@@ -19,13 +19,13 @@ from tools import compute_similarity
 os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
 # ====== CONSTANTS ======
-SEQUENCE_SIZE = 100
+SEQUENCE_SIZE = 120
 # N_NEAREST_NEIGBORS = 30  # If using n nearest neighbors for adjustment
-MAX_DISTANCE = 12  # If using neightbor within distance for adjustment
+MAX_DISTANCE = 16  # If using neightbor within distance for adjustment
 USE_NEIGHBORS = False  # If using n nearest neighbors for adjustment
 
-ITERATIONS = 20000
-TEMPERATURE = 0.5
+ITERATIONS = 40000
+TEMPERATURE = 0.03
 MAX_DELTA = 0.005
 LABELS_PATH = "data/train_labels.csv"
 SEQUENCES_PATH = "data/train_sequences.csv"
@@ -35,7 +35,7 @@ MAX_SPINE_SPACE = 7.7  # Maximum distance between two points in the spine
 
 OPEN_PLOT = True  # If True, will open a plot window for each sequence
 GRAVITY = 0.01
-VIDEO_SPEED = 50  # Speed of the video in frames per second
+VIDEO_SPEED = 100  # Speed of the video in frames per second
 
 # NOISY_SOURCE_MATRIX = True
 
