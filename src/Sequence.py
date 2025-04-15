@@ -21,12 +21,12 @@ os.chdir(os.path.dirname(os.path.abspath(__file__)))
 # ====== CONSTANTS ======
 SEQUENCE_SIZE = 120
 # N_NEAREST_NEIGBORS = 30  # If using n nearest neighbors for adjustment
-MAX_DISTANCE = 16  # If using neightbor within distance for adjustment
+MAX_DISTANCE = 32  # If using neightbor within distance for adjustment
 USE_NEIGHBORS = False  # If using n nearest neighbors for adjustment
 
-ITERATIONS = 40000
-TEMPERATURE = 0.03
-MAX_DELTA = 0.005
+ITERATIONS = 10000
+TEMPERATURE = 0.3
+MAX_DELTA = 0.01
 LABELS_PATH = "data/train_labels.csv"
 SEQUENCES_PATH = "data/train_sequences.csv"
 SEQUENCE_INDEX = 868
@@ -246,6 +246,37 @@ class Sequence:
                     self.coords[j].z += uz * d
         return self.coords
 
+    @staticmethod
+    def correct_spine_matrix(coords_matrix: Tensor) -> Tensor:
+        """
+        Corrects a coordinate matrix so that the distance between consecutive spine points
+        does not exceed MAX_SPINE_SPACE. For any pair (i, i+1) with distance > MAX_SPINE_SPACE:
+        - Calculate the unit vector from point i to point i+1.
+        - Calculate the correction (MAX_SPINE_SPACE - distance) (a negative number).
+        - Apply this correction to all subsequent points (i+1 onward) along that unit vector.
+        
+        Args:
+            coords_matrix (Tensor): A tensor of shape [N, 3] containing the coordinates.
+        
+        Returns:
+            Tensor: The corrected coordinate matrix.
+        """
+        num_points = coords_matrix.shape[0]
+        for i in range(num_points - 1):
+            # Calculate the difference vector between consecutive points.
+            diff = coords_matrix[i + 1] - coords_matrix[i]
+            # Compute the Euclidean distance between points i and i+1.
+            dist = torch.norm(diff, p=2)
+            # If the distance exceeds the allowed max, compute and apply a correction.
+            if dist > MAX_SPINE_SPACE:
+                # Compute the unit vector (adding a small epsilon to avoid division by zero).
+                unit = diff / (dist + 1e-8)
+                # The correction needed (this will be negative if the distance is too large).
+                correction = unit * (MAX_SPINE_SPACE - dist)
+                # Update all subsequent coordinates by adding the same correction.
+                coords_matrix[i + 1:] = coords_matrix[i + 1:] + correction
+        return coords_matrix
+    
     def gravitate_centroid(self):
         """
         Move All Coordinates Very slightly towards the centroid.
@@ -290,11 +321,13 @@ class Sequence:
         recording = []
 
         for curr in range(n_iter):
+            self.correct_spine_matrix(coords_matrix)
             print(f"Iteration {curr+1}/{n_iter}")
             # Compute current pairwise distances: shape [N, N]
             new_distance_matrix = torch.norm(
                 coords_matrix.unsqueeze(0) - coords_matrix.unsqueeze(1), dim=2
             )
+            
 
             # Compute difference between current distances and the original ones.
             dist_diff = new_distance_matrix - self.distance_matrix
@@ -536,11 +569,12 @@ class Sequence:
             n = len(self.seq_str)
 
             r = 5.5
+            dir_bias_x = 100
             coords = []
             curr_pos = Vector(
                 random.uniform(-r, r),
-                random.uniform(-r, r),
-                random.uniform(-r, r),
+                random.uniform(-r/dir_bias_x, r/dir_bias_x),
+                random.uniform(-r/dir_bias_x, r/dir_bias_x),
             )
             coords.append(curr_pos)
 
