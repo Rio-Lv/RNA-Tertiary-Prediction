@@ -943,8 +943,9 @@ class SequenceDataset:
 # ======== MODELS ==========
 class NextResidueModel(nn.Module):
     """ 
-    Model Takes in Sequence Distance Matrix Subset(len 3) and Type Encoding of the 4th
-    predicts a distance of the fourth
+    Model Takes in Sequence of Length 5 but distance of the 5th is missing
+    and predicts the distance of the 5th residue to the first 4 residues.
+    5th residues encoding is available.
     """
     def __init__(self):
         super().__init__()
