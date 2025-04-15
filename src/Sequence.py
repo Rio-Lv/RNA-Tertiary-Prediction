@@ -19,13 +19,14 @@ from tools import compute_similarity
 os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
 # ====== CONSTANTS ======
-SEQUENCE_SIZE = 300
+SEQUENCE_SIZE = 60
+N_SEQUENCES = 50
 # N_NEAREST_NEIGBORS = 30  # If using n nearest neighbors for adjustment
 MAX_DISTANCE = 32  # If using neightbor within distance for adjustment
 USE_NEIGHBORS = False  # If using n nearest neighbors for adjustment
 
-ITERATIONS = 3000
-TEMPERATURE = 0.2
+ITERATIONS = 1000
+TEMPERATURE = 1
 MAX_DELTA = 0.05
 LABELS_PATH = "data/train_labels.csv"
 SEQUENCES_PATH = "data/train_sequences.csv"
@@ -103,6 +104,16 @@ class Sequence:
         msg += "---------------------------- \n"
         return msg
 
+    def subset(self, start: int, end: int):
+        """
+        Grab a subset of the sequence.
+        :param start: Start index
+        :param end: End index
+        :return: Subset of the sequence
+        """
+        seq_str = self.seq_str[start:end]
+        coords = self.coords[start:end]
+        return Sequence(seq_str, coords=coords)
     @staticmethod
     def encode_str(seq_str: str):
         """
@@ -845,42 +856,44 @@ class SequenceDataset:
 
     real_sequences: list[Sequence]
 
-    def __init__(self, n_sequences: int = 100):
+    def __init__(self, n_sequences: int = N_SEQUENCES):
         self.real_sequences = self.get_real_sequences(n_sequences)
 
     def get_real_sequences(self, target_n_sequences: int):
         label_df = pd.read_csv(LABELS_PATH)
+        sequences_df = pd.read_csv(SEQUENCES_PATH)
         # using a windowed approach
         sequences = []
+        target_n_sequences = min(len(sequences_df), target_n_sequences)
 
-        max_length = len(label_df)
-        curr_index = 0
-
-        while (
-            len(sequences) < target_n_sequences
-            or curr_index + SEQUENCE_SIZE > max_length
-        ):
-            i = curr_index
-
-            resid = label_df.iloc[i]["resid"]
-            end_resid = label_df.iloc[i + SEQUENCE_SIZE]["resid"]
-            if resid > end_resid:
-                curr_index += SEQUENCE_SIZE
+        for i in range(len(sequences_df)):
+            
+            if len(sequences) >= target_n_sequences:
+                print("Target number of sequences reached.")
+                break
+            seq_id = sequences_df.iloc[i]["target_id"]
+            seq_str = sequences_df.iloc[i]["sequence"]
+      
+            if len(seq_str) < SEQUENCE_SIZE:
                 continue
-            labels_window = label_df.iloc[i : i + SEQUENCE_SIZE]
-            seq_window = labels_window["resname"].tolist()
-            seq_str = "".join(seq_window)
-            x_1 = labels_window["x_1"].tolist()
-            y_1 = labels_window["y_1"].tolist()
-            z_1 = labels_window["z_1"].tolist()
+            
+            print(f"Processing sequence {len(sequences)}/{target_n_sequences} ({seq_id})")
+            
+            # seq labels is label df where seq_id is included ID col
+            seq_labels = label_df[label_df["ID"].str.contains(seq_id, na=False)]
+
+            x_1 = seq_labels["x_1"].tolist()
+            y_1 = seq_labels["y_1"].tolist()
+            z_1 = seq_labels["z_1"].tolist()
+            
             coords = []
             for x, y, z in zip(x_1, y_1, z_1):
                 coords.append(Vector(x, y, z))
             seq = Sequence(seq_str, coords)
             sequences.append(seq)
-            curr_index += 1
+    
+        [print("seq") for seq in sequences[:5]]
         self.real_sequences = sequences
-        # [print(seq) for seq in sequences[:5]]
         return sequences
 
     def get_random_sequence(self):
@@ -889,8 +902,7 @@ class SequenceDataset:
         curr_try = 0
         max_tries = 2000
         while (
-            len(seq.coords) > SEQUENCE_SIZE + 20
-            and len(seq.coords) < SEQUENCE_SIZE - 20
+            len(seq.coords) < SEQUENCE_SIZE
         ):
             random_index = random.randint(0, len(self.real_sequences) - 1)
             seq = self.real_sequences[random_index]
@@ -898,7 +910,7 @@ class SequenceDataset:
             if curr_try > max_tries:
                 print("Max tries reached, returning random sequence.")
                 break
-        seq = copy.deepcopy(seq)
+        seq = seq.subset(0, SEQUENCE_SIZE)
         print(f"Random Sequence: {random_index}")
         return seq
 
@@ -927,14 +939,16 @@ class SequenceDataset:
         plt.title("Histogram of Sequence Lengths")
         plt.show()
         
+        
 # ======== MODELS ==========
-class DistanceMatrixModel(nn.Module):
+class NextResidueModel(nn.Module):
+    """ 
+    Model Takes in Sequence Distance Matrix Subset(len 3) and Type Encoding of the 4th
+    predicts a distance of the fourth
     """
-    Takes in a sequence and outputs a distance matrix.
-    """
-
-    def __init__():
+    def __init__(self):
         super().__init__()
+    
 
 
 if __name__ == "__main__":
