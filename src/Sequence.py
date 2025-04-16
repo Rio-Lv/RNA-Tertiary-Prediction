@@ -19,16 +19,16 @@ from tools import compute_similarity
 os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
 # ====== CONSTANTS ======
-SEQUENCE_SIZE = 100
+SEQUENCE_SIZE = 260
 SPINE_WINDOW_SIZE = 5
 N_SEQUENCES = 10
 # N_NEAREST_NEIGBORS = 30  # If using n nearest neighbors for adjustment
-MAX_DISTANCE = 32  # If using neightbor within distance for adjustment
-USE_NEIGHBORS = False  # If using n nearest neighbors for adjustment
+# MAX_DISTANCE = 32  # If using neightbor within distance for adjustment
+# USE_NEIGHBORS = False  # If using n nearest neighbors for adjustment
 
 ITERATIONS = 10000
-TEMPERATURE = 0.01
-MAX_DELTA = 0.01
+TEMPERATURE = 5
+MAX_DELTA = 0.1
 LABELS_PATH = "data/train_labels.csv"
 SEQUENCES_PATH = "data/train_sequences.csv"
 SEQUENCE_INDEX = 868
@@ -41,7 +41,7 @@ VIDEO_SPEED = ITERATIONS // 100  # Speed of the video in frames per second
 
 DIR_BIAS_X = 1  # Bias for the x direction in random walk
 EPS = 1e-8  # Small value to avoid division by zero
-
+DELTA_DROP_RATE = 0.9  # Rate at which deltas are dropped
 # NOISY_SOURCE_MATRIX = True
 
 
@@ -293,6 +293,7 @@ class Sequence:
         deltas = deltas * scale
         
         return deltas
+    
     def apply_heat(self, target_distance_matrix: Tensor) -> Tensor:
         """
         Apply Gaussian noise to the distance matrix.
@@ -302,6 +303,14 @@ class Sequence:
         target_distance_matrix += noise
         return target_distance_matrix
 
+    def drop(self, tensor: Tensor, drop_rate:float) -> Tensor:
+        """
+        Randomly drop elements from a tensor with a given probability.
+        """
+        mask = torch.rand(tensor.shape) > drop_rate
+        tensor = tensor * mask
+        return tensor
+    
     def adjust_coords(self, n_iter: int) -> list[Vector]:
         """
         Make coords match the distance matrix via simulation.
@@ -325,8 +334,12 @@ class Sequence:
             target_distance_matrix = self.apply_heat(target_distance_matrix)
             # 3. Compute Deltas Based on Target Distance Matrix
             deltas = self.compute_delta_matrix(coord_matrix, target_distance_matrix)
+            # 3.1. Drop some deltas to simulate imperfect information
+            deltas = self.drop(deltas, drop_rate=DELTA_DROP_RATE)
             # 4. Add the deltas to the coordinates.
             coord_matrix = coord_matrix + deltas
+            # 4.1. Correct Spine (if needed, significant slow down)
+            # coord_matrix = self.correct_spine_matrix(coord_matrix)
             # 5. Record the current state.
             recording.append(coord_matrix.clone())
 
@@ -930,7 +943,7 @@ if __name__ == "__main__":
     # seq_dataset.get_stats()
     print("Loading Random Sequence")
     # seq = seq_dataset.get_random_sequence()
-    seq = seq_dataset.source_sequences[5]
+    seq = seq_dataset.source_sequences[0]
     print(f"Sequence Length: {len(seq.seq_str)}")
     # seq._coords_to_noise()
     # seq.adjust_coords(n_iter=100, use_neighbors=USE_NEIGHBORS)
