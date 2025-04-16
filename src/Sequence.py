@@ -26,9 +26,9 @@ N_SEQUENCES = 10
 MAX_DISTANCE = 32  # If using neightbor within distance for adjustment
 USE_NEIGHBORS = False  # If using n nearest neighbors for adjustment
 
-ITERATIONS = 2000
-TEMPERATURE = 0.1
-MAX_DELTA = 0.05
+ITERATIONS = 10000
+TEMPERATURE = 0.01
+MAX_DELTA = 0.01
 LABELS_PATH = "data/train_labels.csv"
 SEQUENCES_PATH = "data/train_sequences.csv"
 SEQUENCE_INDEX = 868
@@ -40,6 +40,7 @@ GRAVITY = 0.001
 VIDEO_SPEED = ITERATIONS // 100  # Speed of the video in frames per second
 
 DIR_BIAS_X = 1  # Bias for the x direction in random walk
+EPS = 1e-8  # Small value to avoid division by zero
 
 # NOISY_SOURCE_MATRIX = True
 
@@ -284,11 +285,11 @@ class Sequence:
         dist_diff = new_distance_matrix - target_distance_matrix
         d_coords = coord_matrix.unsqueeze(0) - coord_matrix.unsqueeze(1)
 
-        eps = 1e-8
-        u_vecs = d_coords / (new_distance_matrix.unsqueeze(2) + eps)
+
+        u_vecs = d_coords / (new_distance_matrix.unsqueeze(2) + EPS)
         deltas = (u_vecs * dist_diff.unsqueeze(2)).sum(dim=1)
         mags = torch.norm(deltas, dim=1, keepdim=True)
-        scale = MAX_DELTA / (mags + eps)
+        scale = MAX_DELTA / (mags + EPS)
         deltas = deltas * scale
         
         return deltas
@@ -371,78 +372,79 @@ class Sequence:
         5. Align the unit vector from self.coords[0] to self.coords[1] with the unit vector from
         target_coords[0] to target_coords[1] (apply an additional twist rotation about the plane normal).
         6. Return the new coordinates as a list of Vector objects.
-
-        Parameters:
-        target_coords (list[Vector]): List of target Vector objects.
-
-        Returns:
-        list[Vector]: A new list of Vector objects representing the aligned coordinates.
         """
-        # Ensure there are at least 3 points in both sets.
+
         if len(input_coords) < 3 or len(target_coords) < 3:
-            raise ValueError(
-                "At least 3 coordinates are required in both the source and target sets."
-            )
+            raise ValueError("Need at least 3 points in each set.")
 
-        # --- Step 1: Define planes for source and target using the first three points ---
-        # Source plane
-        p0 = np.array([input_coords[0].x, input_coords[0].y, input_coords[0].z])
-        p1 = np.array([input_coords[1].x, input_coords[1].y, input_coords[1].z])
-        p2 = np.array([input_coords[2].x, input_coords[2].y, input_coords[2].z])
-        v1 = p1 - p0
-        v2 = p2 - p0
+        # Build numpy arrays
+        def to_np(v): return np.array([v.x, v.y, v.z], dtype=float)
+        p0, p1, p2 = map(to_np, input_coords[:3])
+        q0, q1, q2 = map(to_np, target_coords[:3])
+
+        # Source normal
+        v1, v2 = p1 - p0, p2 - p0
         n_source = np.cross(v1, v2)
-        n_source_norm = n_source / np.linalg.norm(n_source)
+        norm_s = np.linalg.norm(n_source)
 
-        # Target plane
-        q0 = np.array([target_coords[0].x, target_coords[0].y, target_coords[0].z])
-        q1 = np.array([target_coords[1].x, target_coords[1].y, target_coords[1].z])
-        q2 = np.array([target_coords[2].x, target_coords[2].y, target_coords[2].z])
-        w1 = q1 - q0
-        w2 = q2 - q0
+        # Target normal
+        w1, w2 = q1 - q0, q2 - q0
         n_target = np.cross(w1, w2)
-        n_target_norm = n_target / np.linalg.norm(n_target)
+        norm_t = np.linalg.norm(n_target)
 
-        # --- Step 2: Create rotation to align source normal to target normal ---
-        # Note: align_vectors expects target first.
-        rot_obj, rmsd = R.align_vectors([n_target_norm], [n_source_norm])
+        # Normalize if safe, otherwise mark as degenerate
+        if norm_s > EPS:
+            n_source_norm = n_source / norm_s
+        else:
+            n_source_norm = None
 
-        # --- Step 3: Rotate all source points using the computed rotation ---
-        points = np.array([[vec.x, vec.y, vec.z] for vec in input_coords])
-        rotated_points = rot_obj.apply(points)
+        if norm_t > EPS:
+            n_target_norm = n_target / norm_t
+        else:
+            n_target_norm = None
 
-        # --- Step 4: Translate so that the first points align ---
-        translation = q0 - rotated_points[0]
-        aligned_points = rotated_points + translation
+        # STEP 2: Align normals with try/except
+        if n_source_norm is not None and n_target_norm is not None:
+            try:
+                # Note: align_vectors takes (target, source)
+                rot_obj, _ = R.align_vectors([n_target_norm], [n_source_norm])
+            except ValueError:
+                # Degenerate quaternion; fall back to identity
+                rot_obj = R.identity()
+        else:
+            # One of the normals was degenerate
+            rot_obj = R.identity()
 
-        # --- Step 5: Additional twist alignment to match the first-to-second point direction ---
-        # Compute the unit vector from point 0 to point 1 in the source (after rotation & translation)
-        vec_source = aligned_points[1] - aligned_points[0]
-        d_source = vec_source / np.linalg.norm(vec_source)
-        # And for the target:
-        vec_target = q1 - q0
-        d_target = vec_target / np.linalg.norm(vec_target)
+        # STEP 3: Rotate all input points
+        pts = np.vstack([to_np(v) for v in input_coords])
+        rotated = rot_obj.apply(pts)
 
-        # Compute the angle between the directions.
-        dot_val = np.clip(np.dot(d_source, d_target), -1.0, 1.0)
-        angle = np.arccos(dot_val)
-        # Determine the sign of the angle using the target plane normal as the reference axis.
-        cross_vec = np.cross(d_source, d_target)
-        sign = np.sign(np.dot(cross_vec, n_target_norm))
-        twist_angle = angle * sign
+        # STEP 4: Translate so first points coincide
+        translation = q0 - rotated[0]
+        aligned = rotated + translation
 
-        # Create twist rotation about the axis (which is n_target_norm)
-        twist_rot = R.from_rotvec(twist_angle * n_target_norm)
-        # Apply the twist rotation about the common pivot q0 (target_coords[0]).
-        final_aligned_points = []
-        for pt in aligned_points:
-            final_pt = q0 + twist_rot.apply(pt - q0)
-            final_aligned_points.append(final_pt)
+        # STEP 5: Twist alignment of first‐to‐second vector
+        # Source direction
+        ds = aligned[1] - aligned[0]
+        dn_s = ds / (np.linalg.norm(ds) + EPS)
+        # Target direction
+        dt = (q1 - q0)
+        dn_t = dt / (np.linalg.norm(dt) + EPS)
 
-        # --- Step 6: Convert back into a list of Vector objects and update self.coords ---
-        new_coords = [Vector(pt[0], pt[1], pt[2]) for pt in final_aligned_points]
-        # self.coords = new_coords
-        return new_coords
+        # Compute signed angle
+        dot = np.clip(np.dot(dn_s, dn_t), -1.0, 1.0)
+        angle = np.arccos(dot)
+        # Use the (possibly degenerate) target normal to sign the twist
+        axis = n_target_norm if n_target_norm is not None else np.array([0,0,1])
+        sign = np.sign(np.dot(np.cross(dn_s, dn_t), axis))
+        twist = R.from_rotvec(axis * (angle * sign))
+
+        final_pts = np.array([
+            q0 + twist.apply(pt - q0) for pt in aligned
+        ])
+
+        # Convert back to Vectors
+        return [Vector(x, y, z) for x, y, z in final_pts]
 
     def plot(self, coords_list: list[list[Vector]] = None, set_names: list[str] = None):
         """
@@ -928,7 +930,7 @@ if __name__ == "__main__":
     # seq_dataset.get_stats()
     print("Loading Random Sequence")
     # seq = seq_dataset.get_random_sequence()
-    seq = seq_dataset.source_sequences[2]
+    seq = seq_dataset.source_sequences[5]
     print(f"Sequence Length: {len(seq.seq_str)}")
     # seq._coords_to_noise()
     # seq.adjust_coords(n_iter=100, use_neighbors=USE_NEIGHBORS)
