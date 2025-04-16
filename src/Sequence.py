@@ -20,14 +20,15 @@ os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
 # ====== CONSTANTS ======
 SEQUENCE_SIZE = 100
-N_SEQUENCES = 2
+NEXT_RES_SEQ_SIZE = 5
+N_SEQUENCES = 10
 # N_NEAREST_NEIGBORS = 30  # If using n nearest neighbors for adjustment
 MAX_DISTANCE = 32  # If using neightbor within distance for adjustment
 USE_NEIGHBORS = False  # If using n nearest neighbors for adjustment
 
-ITERATIONS = 10000
+ITERATIONS = 20000
 TEMPERATURE = 1
-MAX_DELTA = 0.01
+MAX_DELTA = 0.05
 LABELS_PATH = "data/train_labels.csv"
 SEQUENCES_PATH = "data/train_sequences.csv"
 SEQUENCE_INDEX = 868
@@ -36,7 +37,7 @@ MAX_SPINE_SPACE = 7.7  # Maximum distance between two points in the spine
 
 OPEN_PLOT = True  # If True, will open a plot window for each sequence
 GRAVITY = 0.001
-VIDEO_SPEED = ITERATIONS//100  # Speed of the video in frames per second
+VIDEO_SPEED = ITERATIONS // 100  # Speed of the video in frames per second
 
 DIR_BIAS_X = 1  # Bias for the x direction in random walk
 
@@ -111,9 +112,11 @@ class Sequence:
         :param end: End index
         :return: Subset of the sequence
         """
+        seq_id = self.seq_id
         seq_str = self.seq_str[start:end]
         coords = self.coords[start:end]
-        return Sequence(seq_str, coords=coords)
+        return Sequence(seq_str=seq_str, seq_id=seq_id, coords=coords)
+
     @staticmethod
     def encode_str(seq_str: str):
         """
@@ -267,10 +270,10 @@ class Sequence:
         - Calculate the unit vector from point i to point i+1.
         - Calculate the correction (MAX_SPINE_SPACE - distance) (a negative number).
         - Apply this correction to all subsequent points (i+1 onward) along that unit vector.
-        
+
         Args:
             coords_matrix (Tensor): A tensor of shape [N, 3] containing the coordinates.
-        
+
         Returns:
             Tensor: The corrected coordinate matrix.
         """
@@ -287,9 +290,9 @@ class Sequence:
                 # The correction needed (this will be negative if the distance is too large).
                 correction = unit * (MAX_SPINE_SPACE - dist)
                 # Update all subsequent coordinates by adding the same correction.
-                coords_matrix[i + 1:] = coords_matrix[i + 1:] + correction
+                coords_matrix[i + 1 :] = coords_matrix[i + 1 :] + correction
         return coords_matrix
-    
+
     @staticmethod
     def gravitate_centroid_matrix(coord_matrix: Tensor) -> Tensor:
         """
@@ -314,8 +317,7 @@ class Sequence:
         # Move each coordinate slightly towards the centroid
         coord_matrix += unit_vectors * GRAVITY
         return coord_matrix
-        
-    
+
     def gravitate_centroid(self):
         """
         Move All Coordinates Very slightly towards the centroid.
@@ -367,7 +369,6 @@ class Sequence:
             new_distance_matrix = torch.norm(
                 coords_matrix.unsqueeze(0) - coords_matrix.unsqueeze(1), dim=2
             )
-            
 
             # Compute difference between current distances and the original ones.
             dist_diff = new_distance_matrix - self.distance_matrix
@@ -408,7 +409,9 @@ class Sequence:
 
         # Update self.coords from the coords_matrix.
         for i in range(len(self.coords)):
-            self.coords[i] = Vector(coords_matrix[i][0], coords_matrix[i][1], coords_matrix[i][2])
+            self.coords[i] = Vector(
+                coords_matrix[i][0], coords_matrix[i][1], coords_matrix[i][2]
+            )
 
         return self.coords, recording
 
@@ -430,8 +433,7 @@ class Sequence:
 
     @staticmethod
     def compute_similarity_us_align(
-        gen_path = "seq_output/seq_generated.pdb",
-        target_path = "seq_output/seq_target.pdb"  
+        gen_path="seq_output/seq_generated.pdb", target_path="seq_output/seq_target.pdb"
     ):
 
         compute_similarity(gen_path, target_path)
@@ -604,8 +606,8 @@ class Sequence:
             coords = []
             curr_pos = Vector(
                 random.uniform(-r, r),
-                random.uniform(-r/dir_bias_x, r/dir_bias_x),
-                random.uniform(-r/dir_bias_x, r/dir_bias_x),
+                random.uniform(-r / dir_bias_x, r / dir_bias_x),
+                random.uniform(-r / dir_bias_x, r / dir_bias_x),
             )
             coords.append(curr_pos)
 
@@ -674,13 +676,11 @@ class Sequence:
         self._coords_to_noise()
 
         # Adjust the coordinates and record the intermediate states.
-        coords_adjusted, recording = self.adjust_coords(
-            n_iter=iterations
-        )
-        
+        coords_adjusted, recording = self.adjust_coords(n_iter=iterations)
+
         gen_path = "seq_output/seq_generated.pdb"
         target_path = "seq_output/seq_target.pdb"
-        
+
         self.to_pdb(
             coords_adjusted,
             self.seq_str,
@@ -848,42 +848,57 @@ class SequenceDataset:
     real_sequences: list[Sequence]
 
     def __init__(self, n_sequences: int = N_SEQUENCES):
-        self.real_sequences = self.get_real_sequences(n_sequences)
+        self.n_sequences = n_sequences
+        self.real_sequences = self.get_real_sequences()
 
-    def get_real_sequences(self, target_n_sequences: int):
+    def get_real_sequences(self):
         label_df = pd.read_csv(LABELS_PATH)
         sequences_df = pd.read_csv(SEQUENCES_PATH)
         # using a windowed approach
         sequences = []
-        target_n_sequences = min(len(sequences_df), target_n_sequences)
+        n_sequences = self.n_sequences
+        n_sequences = min(len(sequences_df), n_sequences)
 
         for i in range(len(sequences_df)):
-            
-            if len(sequences) >= target_n_sequences:
+
+            if len(sequences) >= n_sequences:
                 print("Target number of sequences reached.")
                 break
             seq_id = sequences_df.iloc[i]["target_id"]
             seq_str = sequences_df.iloc[i]["sequence"]
-      
+
             if len(seq_str) < SEQUENCE_SIZE:
                 continue
-            
-            print(f"Processing sequence {len(sequences)}/{target_n_sequences} ({seq_id})")
-            
-            # seq labels is label df where seq_id is included ID col
-            seq_labels = label_df[label_df["ID"].str.contains(seq_id, na=False)]
 
-            x_1 = seq_labels["x_1"].tolist()
-            y_1 = seq_labels["y_1"].tolist()
-            z_1 = seq_labels["z_1"].tolist()
-            
-            coords = []
-            for x, y, z in zip(x_1, y_1, z_1):
-                coords.append(Vector(x, y, z))
-            seq = Sequence(seq_str, coords)
-            sequences.append(seq)
-    
-        [print("seq") for seq in sequences[:5]]
+            splits = len(seq_str) // SEQUENCE_SIZE
+            for i in range(splits):
+                start_index = i * SEQUENCE_SIZE
+                end_index = start_index + SEQUENCE_SIZE
+                
+                if len(sequences) >= n_sequences:
+                    print("Target number of sequences reached.")
+                    break
+
+                print(
+                    f"Processing sequence {len(sequences)}/{n_sequences} ({seq_id}) split {i+1}/{splits})"
+                )
+
+                # seq labels is label df where seq_id is included ID col
+                seq_labels = label_df[label_df["ID"].str.contains(seq_id, na=False)]
+
+                x_1 = seq_labels["x_1"].tolist()
+                y_1 = seq_labels["y_1"].tolist()
+                z_1 = seq_labels["z_1"].tolist()
+
+                coords = []
+                for x, y, z in zip(x_1, y_1, z_1):
+                    coords.append(Vector(x, y, z))
+                seq = Sequence(
+                    seq_str=seq_str[start_index:end_index],
+                    seq_id=f"{seq_id} split_{i+1}",
+                    coords=coords[start_index:end_index],
+                )
+                sequences.append(seq)
         self.real_sequences = sequences
         return sequences
 
@@ -892,9 +907,7 @@ class SequenceDataset:
         seq = self.real_sequences[random_index]
         curr_try = 0
         max_tries = 2000
-        while (
-            len(seq.coords) < SEQUENCE_SIZE
-        ):
+        while len(seq.coords) < SEQUENCE_SIZE:
             random_index = random.randint(0, len(self.real_sequences) - 1)
             seq = self.real_sequences[random_index]
             curr_try += 1
@@ -920,7 +933,7 @@ class SequenceDataset:
         print(f"Min sequence length: {sequences['sequence'].str.len().min()}")
         print(f"Max sequence length: {sequences['sequence'].str.len().max()}")
         print(f"Standard deviation: {sequences['sequence'].str.len().std()}")
-      
+
         # Plot histogram of sequence lengths
         # limit the x-axis to 300
         plt.hist(sequences["sequence"].str.len(), bins=300)
@@ -929,22 +942,34 @@ class SequenceDataset:
         plt.ylabel("Frequency")
         plt.title("Histogram of Sequence Lengths")
         plt.show()
-        
-        
+
+
 # ======== MODELS ==========
 class NextResidueModel(nn.Module):
-    """ 
+    """
     Model Takes in Sequence of Length 5 but distance of the 5th is missing
     and predicts the distance of the 5th residue to the first 4 residues.
     5th residues encoding is available.
     """
+
     def __init__(self):
         super().__init__()
-    
+        self.dataset = self.generate_training_data()
+
+    def generate_training_data(self):
+        """
+        Generate training data for the model.
+        1. Take a sequence of length 5
+        2. Predict the distance of the 5th residue to the first 4 residues.
+        """
+        dataset = SequenceDataset(n_sequences=NEXT_RES_SEQ_SIZE)
+
+        # [print(seq) for seq in dataset.real_sequences[:5]]
+        return dataset
 
 
 if __name__ == "__main__":
-    
+
     print("Starting Sequence Class Test")
 
     # Test Sequence from Seq String
@@ -971,18 +996,22 @@ if __name__ == "__main__":
     # # 5. Plot the original and adjusted coordinates (optional)
     # seq.plot([seq.source_coords, seq.coords], ["Original", "Adjusted"])
 
-    # # =============== Test 2 ==============
+    # =============== Test 2 ==============
     print("Loading Sequence Dataset")
     seq_dataset = SequenceDataset()
     print(len(seq_dataset.real_sequences))
     # Initialize a real sequence (Distance Matrix Assigned)
     # seq_dataset.get_stats()
     print("Loading Random Sequence")
-    seq = seq_dataset.get_random_sequence()
-    # seq = seq_dataset.real_sequences[SEQUENCE_INDEX]
+    # seq = seq_dataset.get_random_sequence()
+    seq = seq_dataset.real_sequences[3]
     print(f"Sequence Length: {len(seq.seq_str)}")
     # seq._coords_to_noise()
     # seq.adjust_coords(n_iter=100, use_neighbors=USE_NEIGHBORS)
     seq._test_adjust_coords_video(iterations=ITERATIONS, speed=VIDEO_SPEED)
-    
+
     Sequence.compute_similarity_us_align()
+
+    # # ================ Test 3 Next Residue Model ==============
+
+    # next_res_model = NextResidueModel()
