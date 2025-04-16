@@ -26,9 +26,9 @@ N_SEQUENCES = 10
 MAX_DISTANCE = 32  # If using neightbor within distance for adjustment
 USE_NEIGHBORS = False  # If using n nearest neighbors for adjustment
 
-ITERATIONS = 10000
+ITERATIONS = 2000
 TEMPERATURE = 1
-MAX_DELTA = 0.05
+MAX_DELTA = 0.1
 LABELS_PATH = "data/train_labels.csv"
 SEQUENCES_PATH = "data/train_sequences.csv"
 SEQUENCE_INDEX = 868
@@ -277,6 +277,37 @@ class Sequence:
         """
         # Compute pairwise distances using broadcasting
         return torch.norm(coord_matrix.unsqueeze(0) - coord_matrix.unsqueeze(1), dim=2)
+    
+    @staticmethod
+    def compute_delta_matrix(coord_matrix: Tensor, target_distance_matrix: Tensor) -> Tensor:
+
+        new_distance_matrix = Sequence.coord_to_distance_matrix(coord_matrix)
+        # Compute difference between current distances and the original ones.
+        dist_diff = new_distance_matrix - target_distance_matrix
+
+
+        # # Create a binary mask: 1 for distances within MAX_DISTANCE, 0 otherwise.
+        # mask = (new_distance_matrix <= MAX_DISTANCE).float()
+
+        # # Apply the mask to the distance differences so contributions outside the threshold vanish.
+        # dist_diff = dist_diff * mask
+
+        # Compute pairwise coordinate differences: shape [N, N, 3]
+        d_coords = coord_matrix.unsqueeze(0) - coord_matrix.unsqueeze(1)
+
+        eps = 1e-8
+        # Compute unit directional vectors.
+        u_vecs = d_coords / (new_distance_matrix.unsqueeze(2) + eps)
+        # Multiply unit vectors by the mask so that pairs outside the threshold contribute zero.
+        # u_vecs = u_vecs * mask.unsqueeze(2)
+
+        # Compute the deltas by summing the contributions for each coordinate.
+        deltas = (u_vecs * dist_diff.unsqueeze(2)).sum(dim=1)
+        mags = torch.norm(deltas, dim=1, keepdim=True)
+        scale = MAX_DELTA / (mags + eps)
+        deltas = deltas * scale
+        
+        return deltas
 
     def adjust_coords(self, n_iter: int) -> list[Vector]:
         """
@@ -287,7 +318,9 @@ class Sequence:
         4. Calculate unit vectors from coord i to coord j.
         Only contributions from pairs with distances <= MAX_DISTANCE are considered.
         """
-        coord_matrix = self.coords_list_to_matrix(self.coords)
+        
+        source_distance_matrix = self.distance_matrix # Contant throughout
+        coord_matrix = self.coords_list_to_matrix(self.coords) # Changes every iteration
         recording = []
 
         for curr in range(n_iter):
@@ -297,36 +330,40 @@ class Sequence:
             # Compute current pairwise distances: shape [N, N]
             new_distance_matrix = self.coord_to_distance_matrix(coord_matrix)
 
-            # Compute difference between current distances and the original ones.
-            dist_diff = new_distance_matrix - self.distance_matrix
-
             # Add Gaussian noise scaled by the absolute distance difference.
-            heat = torch.normal(0, TEMPERATURE, size=dist_diff.shape)
-            heat = torch.abs(dist_diff) * heat
+            heat = torch.normal(0, TEMPERATURE, size=new_distance_matrix.shape)
+            # heat = torch.abs(dist_diff) * heat
             new_distance_matrix = new_distance_matrix + heat
+            
+            # # Compute difference between current distances and the original ones.
+            # dist_diff = new_distance_matrix - source_distance_matrix
 
-            # Create a binary mask: 1 for distances within MAX_DISTANCE, 0 otherwise.
-            mask = (new_distance_matrix <= MAX_DISTANCE).float()
 
-            # Apply the mask to the distance differences so contributions outside the threshold vanish.
-            dist_diff = dist_diff * mask
+            # # # Create a binary mask: 1 for distances within MAX_DISTANCE, 0 otherwise.
+            # # mask = (new_distance_matrix <= MAX_DISTANCE).float()
 
-            # Compute pairwise coordinate differences: shape [N, N, 3]
-            d_coords = coord_matrix.unsqueeze(0) - coord_matrix.unsqueeze(1)
+            # # # Apply the mask to the distance differences so contributions outside the threshold vanish.
+            # # dist_diff = dist_diff * mask
 
-            eps = 1e-8
-            # Compute unit directional vectors.
-            u_vecs = d_coords / (new_distance_matrix.unsqueeze(2) + eps)
-            # Multiply unit vectors by the mask so that pairs outside the threshold contribute zero.
-            u_vecs = u_vecs * mask.unsqueeze(2)
+            # # Compute pairwise coordinate differences: shape [N, N, 3]
+            # d_coords = coord_matrix.unsqueeze(0) - coord_matrix.unsqueeze(1)
 
-            # Compute the deltas by summing the contributions for each coordinate.
-            deltas = (u_vecs * dist_diff.unsqueeze(2)).sum(dim=1)
+            # eps = 1e-8
+            # # Compute unit directional vectors.
+            # u_vecs = d_coords / (new_distance_matrix.unsqueeze(2) + eps)
+            # # Multiply unit vectors by the mask so that pairs outside the threshold contribute zero.
+            # # u_vecs = u_vecs * mask.unsqueeze(2)
+
+            # # Compute the deltas by summing the contributions for each coordinate.
+            # deltas = (u_vecs * dist_diff.unsqueeze(2)).sum(dim=1)
+            # deltas = self.compute_delta_matrix(coord_matrix, new_distance_matrix)
 
             # Enforce that each delta's magnitude does not exceed MAX_DELTA.
-            mags = torch.norm(deltas, dim=1, keepdim=True)
-            scale = MAX_DELTA / (mags + eps)
-            deltas = deltas * scale
+            # mags = torch.norm(deltas, dim=1, keepdim=True)
+            # scale = MAX_DELTA / (mags + eps)
+            # deltas = deltas * scale
+
+            deltas = self.compute_delta_matrix(coord_matrix, source_distance_matrix)
 
             # Update the coordinates.
             coord_matrix = coord_matrix + deltas
