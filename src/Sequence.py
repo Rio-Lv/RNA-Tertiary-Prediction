@@ -20,7 +20,7 @@ os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
 # ====== CONSTANTS ======
 SEQUENCE_SIZE = 100
-NEXT_RES_SEQ_SIZE = 5
+SPINE_WINDOW_SIZE = 5
 N_SEQUENCES = 10
 # N_NEAREST_NEIGBORS = 30  # If using n nearest neighbors for adjustment
 MAX_DISTANCE = 32  # If using neightbor within distance for adjustment
@@ -845,11 +845,11 @@ class SequenceDataset:
     Output is the distance matrix
     """
 
-    real_sequences: list[Sequence]
+    source_sequences: list[Sequence]
 
     def __init__(self, n_sequences: int = N_SEQUENCES):
         self.n_sequences = n_sequences
-        self.real_sequences = self.get_real_sequences()
+        self.source_sequences = self.get_real_sequences()
 
     def get_real_sequences(self):
         label_df = pd.read_csv(LABELS_PATH)
@@ -899,17 +899,17 @@ class SequenceDataset:
                     coords=coords[start_index:end_index],
                 )
                 sequences.append(seq)
-        self.real_sequences = sequences
+        self.source_sequences = sequences
         return sequences
 
     def get_random_sequence(self):
-        random_index = random.randint(0, len(self.real_sequences) - 1)
-        seq = self.real_sequences[random_index]
+        random_index = random.randint(0, len(self.source_sequences) - 1)
+        seq = self.source_sequences[random_index]
         curr_try = 0
         max_tries = 2000
         while len(seq.coords) < SEQUENCE_SIZE:
-            random_index = random.randint(0, len(self.real_sequences) - 1)
-            seq = self.real_sequences[random_index]
+            random_index = random.randint(0, len(self.source_sequences) - 1)
+            seq = self.source_sequences[random_index]
             curr_try += 1
             if curr_try > max_tries:
                 print("Max tries reached, returning random sequence.")
@@ -945,11 +945,13 @@ class SequenceDataset:
 
 
 # ======== MODELS ==========
-class NextResidueModel(nn.Module):
+class SpineModel(nn.Module):
     """
     Model Takes in Sequence of Length 5 but distance of the 5th is missing
     and predicts the distance of the 5th residue to the first 4 residues.
     5th residues encoding is available.
+    Meant to simulate the spine physics. eg. bend and torsional rigidity by placing next probable spine residue
+    Via distance matrix.
     """
 
     def __init__(self):
@@ -962,9 +964,9 @@ class NextResidueModel(nn.Module):
         1. Take a sequence of length 5
         2. Predict the distance of the 5th residue to the first 4 residues.
         """
-        dataset = SequenceDataset(n_sequences=NEXT_RES_SEQ_SIZE)
+        dataset = SequenceDataset(n_sequences=SPINE_WINDOW_SIZE)
 
-        # [print(seq) for seq in dataset.real_sequences[:5]]
+        # [print(seq) for seq in dataset.source_sequences[:5]]
         return dataset
 
 
@@ -981,7 +983,7 @@ if __name__ == "__main__":
     # # ============ Test 1 ==============
     # # Test the Sequence Dataset class
     # seq_dataset = SequenceDataset()
-    # print(len(seq_dataset.real_sequences))
+    # print(len(seq_dataset.source_sequences))
     # # Initialize a real sequence (Distance Matrix Assigned)
     # seq = seq_dataset.get_random_sequence()
     # # seq.test_adjust_coords_video()
@@ -999,12 +1001,12 @@ if __name__ == "__main__":
     # =============== Test 2 ==============
     print("Loading Sequence Dataset")
     seq_dataset = SequenceDataset()
-    print(len(seq_dataset.real_sequences))
+    print(len(seq_dataset.source_sequences))
     # Initialize a real sequence (Distance Matrix Assigned)
     # seq_dataset.get_stats()
     print("Loading Random Sequence")
     # seq = seq_dataset.get_random_sequence()
-    seq = seq_dataset.real_sequences[3]
+    seq = seq_dataset.source_sequences[4]
     print(f"Sequence Length: {len(seq.seq_str)}")
     # seq._coords_to_noise()
     # seq.adjust_coords(n_iter=100, use_neighbors=USE_NEIGHBORS)
