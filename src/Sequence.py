@@ -19,15 +19,15 @@ from tools import compute_similarity
 os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
 # ====== CONSTANTS ======
-SEQUENCE_SIZE = 60
-N_SEQUENCES = 50
+SEQUENCE_SIZE = 100
+N_SEQUENCES = 2
 # N_NEAREST_NEIGBORS = 30  # If using n nearest neighbors for adjustment
 MAX_DISTANCE = 32  # If using neightbor within distance for adjustment
 USE_NEIGHBORS = False  # If using n nearest neighbors for adjustment
 
-ITERATIONS = 1000
+ITERATIONS = 10000
 TEMPERATURE = 1
-MAX_DELTA = 0.05
+MAX_DELTA = 0.01
 LABELS_PATH = "data/train_labels.csv"
 SEQUENCES_PATH = "data/train_sequences.csv"
 SEQUENCE_INDEX = 868
@@ -36,7 +36,7 @@ MAX_SPINE_SPACE = 7.7  # Maximum distance between two points in the spine
 
 OPEN_PLOT = True  # If True, will open a plot window for each sequence
 GRAVITY = 0.001
-VIDEO_SPEED = 20  # Speed of the video in frames per second
+VIDEO_SPEED = ITERATIONS//100  # Speed of the video in frames per second
 
 DIR_BIAS_X = 1  # Bias for the x direction in random walk
 
@@ -347,7 +347,7 @@ class Sequence:
             coord.z += uz * GRAVITY
         return self.coords
 
-    def _adjust_coords_via_max_dist(self, n_iter: int) -> list[Vector]:
+    def adjust_coords(self, n_iter: int) -> list[Vector]:
         """
         Make coords match the distance matrix via simulation.
         1. Calculate distance matrix from current coordinates.
@@ -360,7 +360,7 @@ class Sequence:
         recording = []
 
         for curr in range(n_iter):
-            self.correct_spine_matrix(coords_matrix)
+            # self.correct_spine_matrix(coords_matrix)
             self.gravitate_centroid_matrix(coords_matrix)
             print(f"Iteration {curr+1}/{n_iter}")
             # Compute current pairwise distances: shape [N, N]
@@ -411,15 +411,6 @@ class Sequence:
             self.coords[i] = Vector(coords_matrix[i][0], coords_matrix[i][1], coords_matrix[i][2])
 
         return self.coords, recording
-
-    def adjust_coords(
-        self, n_iter: int = 100, use_neighbors: bool = False
-    ) -> tuple[list[Vector], list[Tensor]]:
-        """
-        Adjust the coordinates to match the distance matrix.
-        Can use cluster size or max distance to adjust.
-        """
-        return self._adjust_coords_via_max_dist(n_iter)
 
     @staticmethod
     def to_pdb(coords: list[Vector], seq_str: str, save_path: str = None) -> str:
@@ -684,7 +675,7 @@ class Sequence:
 
         # Adjust the coordinates and record the intermediate states.
         coords_adjusted, recording = self.adjust_coords(
-            n_iter=iterations, use_neighbors=USE_NEIGHBORS
+            n_iter=iterations
         )
         
         gen_path = "seq_output/seq_generated.pdb"
