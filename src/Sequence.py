@@ -27,8 +27,8 @@ MAX_DISTANCE = 32  # If using neightbor within distance for adjustment
 USE_NEIGHBORS = False  # If using n nearest neighbors for adjustment
 
 ITERATIONS = 2000
-TEMPERATURE = 1
-MAX_DELTA = 0.1
+TEMPERATURE = 0.1
+MAX_DELTA = 0.05
 LABELS_PATH = "data/train_labels.csv"
 SEQUENCES_PATH = "data/train_sequences.csv"
 SEQUENCE_INDEX = 868
@@ -280,34 +280,26 @@ class Sequence:
     
     @staticmethod
     def compute_delta_matrix(coord_matrix: Tensor, target_distance_matrix: Tensor) -> Tensor:
-
         new_distance_matrix = Sequence.coord_to_distance_matrix(coord_matrix)
-        # Compute difference between current distances and the original ones.
         dist_diff = new_distance_matrix - target_distance_matrix
-
-
-        # # Create a binary mask: 1 for distances within MAX_DISTANCE, 0 otherwise.
-        # mask = (new_distance_matrix <= MAX_DISTANCE).float()
-
-        # # Apply the mask to the distance differences so contributions outside the threshold vanish.
-        # dist_diff = dist_diff * mask
-
-        # Compute pairwise coordinate differences: shape [N, N, 3]
         d_coords = coord_matrix.unsqueeze(0) - coord_matrix.unsqueeze(1)
 
         eps = 1e-8
-        # Compute unit directional vectors.
         u_vecs = d_coords / (new_distance_matrix.unsqueeze(2) + eps)
-        # Multiply unit vectors by the mask so that pairs outside the threshold contribute zero.
-        # u_vecs = u_vecs * mask.unsqueeze(2)
-
-        # Compute the deltas by summing the contributions for each coordinate.
         deltas = (u_vecs * dist_diff.unsqueeze(2)).sum(dim=1)
         mags = torch.norm(deltas, dim=1, keepdim=True)
         scale = MAX_DELTA / (mags + eps)
         deltas = deltas * scale
         
         return deltas
+    def apply_heat(self, target_distance_matrix: Tensor) -> Tensor:
+        """
+        Apply Gaussian noise to the distance matrix.
+        """
+        noise = torch.normal(0, TEMPERATURE, size=target_distance_matrix.shape)
+        # Add noise to the distance matrix
+        target_distance_matrix += noise
+        return target_distance_matrix
 
     def adjust_coords(self, n_iter: int) -> list[Vector]:
         """
@@ -319,56 +311,22 @@ class Sequence:
         Only contributions from pairs with distances <= MAX_DISTANCE are considered.
         """
         
-        source_distance_matrix = self.distance_matrix # Contant throughout
+        source_target_matrix = self.distance_matrix # Contant throughout
         coord_matrix = self.coords_list_to_matrix(self.coords) # Changes every iteration
         recording = []
 
         for curr in range(n_iter):
-            # self.correct_spine_matrix(coord_matrix)
-            # self.gravitate_centroid_matrix(coord_matrix)
             print(f"Iteration {curr+1}/{n_iter}")
-            # Compute current pairwise distances: shape [N, N]
-            new_distance_matrix = self.coord_to_distance_matrix(coord_matrix)
-
-            # Add Gaussian noise scaled by the absolute distance difference.
-            heat = torch.normal(0, TEMPERATURE, size=new_distance_matrix.shape)
-            # heat = torch.abs(dist_diff) * heat
-            new_distance_matrix = new_distance_matrix + heat
             
-            # # Compute difference between current distances and the original ones.
-            # dist_diff = new_distance_matrix - source_distance_matrix
-
-
-            # # # Create a binary mask: 1 for distances within MAX_DISTANCE, 0 otherwise.
-            # # mask = (new_distance_matrix <= MAX_DISTANCE).float()
-
-            # # # Apply the mask to the distance differences so contributions outside the threshold vanish.
-            # # dist_diff = dist_diff * mask
-
-            # # Compute pairwise coordinate differences: shape [N, N, 3]
-            # d_coords = coord_matrix.unsqueeze(0) - coord_matrix.unsqueeze(1)
-
-            # eps = 1e-8
-            # # Compute unit directional vectors.
-            # u_vecs = d_coords / (new_distance_matrix.unsqueeze(2) + eps)
-            # # Multiply unit vectors by the mask so that pairs outside the threshold contribute zero.
-            # # u_vecs = u_vecs * mask.unsqueeze(2)
-
-            # # Compute the deltas by summing the contributions for each coordinate.
-            # deltas = (u_vecs * dist_diff.unsqueeze(2)).sum(dim=1)
-            # deltas = self.compute_delta_matrix(coord_matrix, new_distance_matrix)
-
-            # Enforce that each delta's magnitude does not exceed MAX_DELTA.
-            # mags = torch.norm(deltas, dim=1, keepdim=True)
-            # scale = MAX_DELTA / (mags + eps)
-            # deltas = deltas * scale
-
-            deltas = self.compute_delta_matrix(coord_matrix, source_distance_matrix)
-
-            # Update the coordinates.
+            # 1. Initiate Target Structure Via Distance Matrix
+            target_distance_matrix = source_target_matrix.clone()
+            # 2. Apply Heat to the Structure.
+            target_distance_matrix = self.apply_heat(target_distance_matrix)
+            # 3. Compute Deltas Based on Target Distance Matrix
+            deltas = self.compute_delta_matrix(coord_matrix, target_distance_matrix)
+            # 4. Add the deltas to the coordinates.
             coord_matrix = coord_matrix + deltas
-
-            # Record the current state.
+            # 5. Record the current state.
             recording.append(coord_matrix.clone())
 
         # Update self.coords from the coord_matrix.
@@ -970,7 +928,7 @@ if __name__ == "__main__":
     # seq_dataset.get_stats()
     print("Loading Random Sequence")
     # seq = seq_dataset.get_random_sequence()
-    seq = seq_dataset.source_sequences[4]
+    seq = seq_dataset.source_sequences[2]
     print(f"Sequence Length: {len(seq.seq_str)}")
     # seq._coords_to_noise()
     # seq.adjust_coords(n_iter=100, use_neighbors=USE_NEIGHBORS)
