@@ -26,7 +26,7 @@ N_SEQUENCES = 10
 MAX_DISTANCE = 32  # If using neightbor within distance for adjustment
 USE_NEIGHBORS = False  # If using n nearest neighbors for adjustment
 
-ITERATIONS = 20000
+ITERATIONS = 10000
 TEMPERATURE = 1
 MAX_DELTA = 0.05
 LABELS_PATH = "data/train_labels.csv"
@@ -79,7 +79,7 @@ class Sequence:
     source_coords: Optional[list[Vector]]
     distance_matrix: Tensor
     encoding: Tensor
-    coords_matrix: Tensor
+    coord_matrix: Tensor
 
     def __init__(self, seq_str: str, seq_id: str = None, coords: list[Vector] = None):
         self.seq_str = seq_str
@@ -89,8 +89,8 @@ class Sequence:
             copy.deepcopy(coords) if coords else self._coords_to_noise(walk=True)
         )
         self.source_coords = copy.deepcopy(self.coords)
-        self.distance_matrix = self.compute_distance_matrix(self.coords)
-        self.coords_matrix = self.create_coords_matrix(self.coords)
+        self.coord_matrix = self.coords_list_to_matrix(self.coords)
+        self.distance_matrix = self.coord_to_distance_matrix(self.coord_matrix)
 
     def __repr__(self):
         msg = "\n"
@@ -151,36 +151,29 @@ class Sequence:
         return Tensor(tensor)
 
     @staticmethod
-    def compute_distance_matrix(coord_list: list[Vector]) -> Tensor:
-        """
-        Compute the distance matrix for a list of coordinates.
-        :param coords: List of coordinates
-        :return: Distance matrix
-        """
-        distance_matrix = []
-        for i in range(len(coord_list)):
-            row = []
-
-            for j in range(len(coord_list)):
-                if i == j:
-                    row.append(0)
-                else:
-                    row.append(Sequence.distance(coord_list[i], coord_list[j]))
-            distance_matrix.append(row)
-        return Tensor(distance_matrix)
-
-    @staticmethod
-    def create_coords_matrix(coords: list[Vector]) -> Tensor:
+    def coords_list_to_matrix(coords: list[Vector]) -> Tensor:
         """
         Create a tensor from a list of coordinates.
         :param coords: List of coordinates
         :return: Tensor of coordinates
         """
-        coords_matrix = []
+        coord_matrix = []
         for coord in coords:
-            coords_matrix.append([coord.x, coord.y, coord.z])
-        return Tensor(coords_matrix)
+            coord_matrix.append([coord.x, coord.y, coord.z])
+        return Tensor(coord_matrix)
 
+    @staticmethod
+    def coords_matrix_to_list(coord_matrix: Tensor) -> list[Vector]:
+        """
+        Create a list of coordinates from a tensor.
+        :param coord_matrix: Tensor of coordinates
+        :return: List of coordinates
+        """
+        coords = []
+        for coord in coord_matrix:
+            coords.append(Vector(coord[0], coord[1], coord[2]))
+        return coords
+    
     @staticmethod
     def compute_neighbors_list(
         coord_list: list[Vector], n_neighbors: int
@@ -220,50 +213,7 @@ class Sequence:
         return neighbors
 
     @staticmethod
-    def distance(coord1: Vector, coord2: Vector) -> float:
-        """
-        Compute the distance between two coordinates.
-        :param coord1: Coordinate 1
-        :param coord2: Coordinate 2
-        :return: Distance
-        """
-        return (
-            (coord1.x - coord2.x) ** 2
-            + (coord1.y - coord2.y) ** 2
-            + (coord1.z - coord2.z) ** 2
-        ) ** 0.5
-
-    def correct_spine(self):
-        """
-        sometimes adjustments make spine coords too far
-        so we need to correct them.
-        1. loop through i and i+1
-        2. if distance is greater than 7A
-        3. calculate the difference vector
-        4. normalize the vector
-        5. multiply by 7A
-        6. move [i+1:] by the difference vector
-        7. return the new coords
-        """
-        for i in range(len(self.coords) - 1):
-            dist = Sequence.distance(self.coords[i], self.coords[i + 1])
-            if dist > MAX_SPINE_SPACE:
-                dx = self.coords[i + 1].x - self.coords[i].x
-                dy = self.coords[i + 1].y - self.coords[i].y
-                dz = self.coords[i + 1].z - self.coords[i].z
-                ux = dx / dist
-                uy = dy / dist
-                uz = dz / dist
-                d = MAX_SPINE_SPACE - dist
-                # Move the next points by the difference vector
-                for j in range(i + 1, len(self.coords)):
-                    self.coords[j].x += ux * d
-                    self.coords[j].y += uy * d
-                    self.coords[j].z += uz * d
-        return self.coords
-
-    @staticmethod
-    def correct_spine_matrix(coords_matrix: Tensor) -> Tensor:
+    def correct_spine_matrix(coord_matrix: Tensor) -> Tensor:
         """
         Corrects a coordinate matrix so that the distance between consecutive spine points
         does not exceed MAX_SPINE_SPACE. For any pair (i, i+1) with distance > MAX_SPINE_SPACE:
@@ -272,15 +222,15 @@ class Sequence:
         - Apply this correction to all subsequent points (i+1 onward) along that unit vector.
 
         Args:
-            coords_matrix (Tensor): A tensor of shape [N, 3] containing the coordinates.
+            coord_matrix (Tensor): A tensor of shape [N, 3] containing the coordinates.
 
         Returns:
             Tensor: The corrected coordinate matrix.
         """
-        num_points = coords_matrix.shape[0]
+        num_points = coord_matrix.shape[0]
         for i in range(num_points - 1):
             # Calculate the difference vector between consecutive points.
-            diff = coords_matrix[i + 1] - coords_matrix[i]
+            diff = coord_matrix[i + 1] - coord_matrix[i]
             # Compute the Euclidean distance between points i and i+1.
             dist = torch.norm(diff, p=2)
             # If the distance exceeds the allowed max, compute and apply a correction.
@@ -290,8 +240,8 @@ class Sequence:
                 # The correction needed (this will be negative if the distance is too large).
                 correction = unit * (MAX_SPINE_SPACE - dist)
                 # Update all subsequent coordinates by adding the same correction.
-                coords_matrix[i + 1 :] = coords_matrix[i + 1 :] + correction
-        return coords_matrix
+                coord_matrix[i + 1 :] = coord_matrix[i + 1 :] + correction
+        return coord_matrix
 
     @staticmethod
     def gravitate_centroid_matrix(coord_matrix: Tensor) -> Tensor:
@@ -318,36 +268,15 @@ class Sequence:
         coord_matrix += unit_vectors * GRAVITY
         return coord_matrix
 
-    def gravitate_centroid(self):
+    @staticmethod
+    def coord_to_distance_matrix(coord_matrix:Tensor) -> Tensor:
         """
-        Move All Coordinates Very slightly towards the centroid.
-        1. calculate centroid
-        2. calculate the difference vector
-        3. calculate unit vector towards centroid
-        4. move each coord by the difference vector
+        Compute the distance matrix from a coordinate matrix.
+        :param coord_matrix: Tensor of shape [N, 3] containing the coordinates.
+        :return: Tensor of shape [N, N] representing the distance matrix.
         """
-        centroid = Vector(0, 0, 0)
-        # for coord in self.coords:
-        #     centroid.x += coord.x
-        #     centroid.y += coord.y
-        #     centroid.z += coord.z
-        # centroid.x /= len(self.coords)
-        # centroid.y /= len(self.coords)
-        # centroid.z /= len(self.coords)
-        # Calculate the difference vector
-        for coord in self.coords:
-            dx = centroid.x - coord.x
-            dy = centroid.y - coord.y
-            dz = centroid.z - coord.z
-            dist = math.sqrt(dx**2 + dy**2 + dz**2)
-            ux = dx / dist
-            uy = dy / dist
-            uz = dz / dist
-            # Move the coord by the difference vector
-            coord.x += ux * GRAVITY
-            coord.y += uy * GRAVITY
-            coord.z += uz * GRAVITY
-        return self.coords
+        # Compute pairwise distances using broadcasting
+        return torch.norm(coord_matrix.unsqueeze(0) - coord_matrix.unsqueeze(1), dim=2)
 
     def adjust_coords(self, n_iter: int) -> list[Vector]:
         """
@@ -358,17 +287,15 @@ class Sequence:
         4. Calculate unit vectors from coord i to coord j.
         Only contributions from pairs with distances <= MAX_DISTANCE are considered.
         """
-        coords_matrix = self.create_coords_matrix(self.coords)
+        coord_matrix = self.coords_list_to_matrix(self.coords)
         recording = []
 
         for curr in range(n_iter):
-            # self.correct_spine_matrix(coords_matrix)
-            self.gravitate_centroid_matrix(coords_matrix)
+            # self.correct_spine_matrix(coord_matrix)
+            # self.gravitate_centroid_matrix(coord_matrix)
             print(f"Iteration {curr+1}/{n_iter}")
             # Compute current pairwise distances: shape [N, N]
-            new_distance_matrix = torch.norm(
-                coords_matrix.unsqueeze(0) - coords_matrix.unsqueeze(1), dim=2
-            )
+            new_distance_matrix = self.coord_to_distance_matrix(coord_matrix)
 
             # Compute difference between current distances and the original ones.
             dist_diff = new_distance_matrix - self.distance_matrix
@@ -385,7 +312,7 @@ class Sequence:
             dist_diff = dist_diff * mask
 
             # Compute pairwise coordinate differences: shape [N, N, 3]
-            d_coords = coords_matrix.unsqueeze(0) - coords_matrix.unsqueeze(1)
+            d_coords = coord_matrix.unsqueeze(0) - coord_matrix.unsqueeze(1)
 
             eps = 1e-8
             # Compute unit directional vectors.
@@ -402,15 +329,15 @@ class Sequence:
             deltas = deltas * scale
 
             # Update the coordinates.
-            coords_matrix = coords_matrix + deltas
+            coord_matrix = coord_matrix + deltas
 
             # Record the current state.
-            recording.append(coords_matrix.clone())
+            recording.append(coord_matrix.clone())
 
-        # Update self.coords from the coords_matrix.
+        # Update self.coords from the coord_matrix.
         for i in range(len(self.coords)):
             self.coords[i] = Vector(
-                coords_matrix[i][0], coords_matrix[i][1], coords_matrix[i][2]
+                coord_matrix[i][0], coord_matrix[i][1], coord_matrix[i][2]
             )
 
         return self.coords, recording
