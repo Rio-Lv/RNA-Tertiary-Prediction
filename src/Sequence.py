@@ -36,7 +36,7 @@ LABELS_PATH = "data/train_labels.csv"
 SEQUENCES_PATH = "data/train_sequences.csv"
 SEQUENCE_INDEX = 868
 
-MAX_SPINE_SPACE = 7.7  # Maximum distance between two points in the spine
+MAX_SPINE_SPACE = 5  # Maximum distance between two points in the spine
 
 OPEN_PLOT = True  # If True, will open a plot window for each sequence
 GRAVITY = 0.001
@@ -47,7 +47,9 @@ EPS = 1e-8  # Small value to avoid division by zero
 DELTA_DROP_RATE = 0.5  # Rate at which deltas are dropped
 # NOISY_SOURCE_MATRIX = True
 
-SPINE_TRAIN_EPOCHS = 1000
+SPINE_TRAIN_EPOCHS = 10000
+SPINE_MODEL_LR = 0.0002
+SPINE_TRAIN_BATCH_SIZE = 512
 # ====== TYPES ======
 class Vector:
     x: float
@@ -922,7 +924,7 @@ class SpineModel(nn.Module):
             [16.7382, 16.7564, 11.6652,  5.5299,  0.0000]])
     """
 
-    def __init__(self, n_sequences: int = 500, sequence_size: int = 5):
+    def __init__(self, n_sequences: int, sequence_size: int, lr: float ):
         super().__init__()
         self.n_sequences = n_sequences
         self.sequence_size = sequence_size
@@ -937,7 +939,8 @@ class SpineModel(nn.Module):
             nn.Linear(64, sequence_size * sequence_size),
         )
         self.loss_fn = nn.MSELoss()
-        self.optimizer = Adam(self.model.parameters(), lr=0.001)
+        self.optimizer = Adam(self.model.parameters(), lr=lr)
+        self.loss_history = []
         
 
     # ---------------------------------------------------------------------- #
@@ -989,7 +992,7 @@ class SpineModel(nn.Module):
         assert not torch.isinf(target_tensor).any(), "Inf in targets"
         dataset = TensorDataset(input_tensor, target_tensor)
         
-        dataloader = DataLoader(dataset, batch_size=16, shuffle=True)
+        dataloader = DataLoader(dataset, batch_size=SPINE_TRAIN_BATCH_SIZE, shuffle=True)
         return dataloader
     
     def train_model(self):
@@ -1005,10 +1008,24 @@ class SpineModel(nn.Module):
                 loss = self.loss_fn(outputs, targets)
                 loss.backward()
                 self.optimizer.step()
+            epoch_loss = loss.item()
+            self.loss_history.append(epoch_loss)      # ←‑ save it
             if epoch % 10 == 0:
-                print(f"Epoch {epoch + 1}/{SPINE_TRAIN_EPOCHS}, Loss: {loss.item():.4f}")
+                print(f"Epoch {epoch + 1}/{SPINE_TRAIN_EPOCHS}, Loss: {epoch_loss:.4f}")
  
-
+    def plot_loss(self):
+        """
+        Plot the training loss over epochs.
+        """
+        plt.plot(self.loss_history)
+        plt.xlabel("Epochs")
+        plt.ylabel("Loss")
+        plt.title("Training Loss")
+        
+        # limit y axis to 5 to 0
+        plt.ylim(0, 5)
+        plt.show()
+        return self.loss_history
 
 if __name__ == "__main__":
 
@@ -1056,7 +1073,7 @@ if __name__ == "__main__":
 
     # ================ Test 3 Next Residue Model ==============
 
-    spine_model = SpineModel(n_sequences=N_SEQUENCES, sequence_size=SPINE_WINDOW_SIZE)
+    spine_model = SpineModel(n_sequences=N_SEQUENCES, sequence_size=SPINE_WINDOW_SIZE, lr=SPINE_MODEL_LR)
     # Generate training data
     spine_data_loader = spine_model.dataloader
     torch.set_printoptions(precision=4, sci_mode=False)
@@ -1085,3 +1102,4 @@ if __name__ == "__main__":
 
     print("\nTarget")
     print(test_target)
+    spine_model.plot_loss()
