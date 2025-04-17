@@ -14,14 +14,17 @@ from scipy.spatial.transform import Rotation as R
 import numpy as np
 import time
 from tools import compute_similarity
+from torch.utils.data import DataLoader, TensorDataset
+from torch.utils.data import Dataset
+from torch.optim import Adam
 
 # set here to cwd
 os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
 # ====== CONSTANTS ======
-SEQUENCE_SIZE = 260
+SEQUENCE_SIZE = 60
 SPINE_WINDOW_SIZE = 5
-N_SEQUENCES = 10
+N_SEQUENCES = 1000
 # N_NEAREST_NEIGBORS = 30  # If using n nearest neighbors for adjustment
 # MAX_DISTANCE = 32  # If using neightbor within distance for adjustment
 # USE_NEIGHBORS = False  # If using n nearest neighbors for adjustment
@@ -41,10 +44,10 @@ VIDEO_SPEED = ITERATIONS // 100  # Speed of the video in frames per second
 
 DIR_BIAS_X = 1  # Bias for the x direction in random walk
 EPS = 1e-8  # Small value to avoid division by zero
-DELTA_DROP_RATE = 0.9  # Rate at which deltas are dropped
+DELTA_DROP_RATE = 0.5  # Rate at which deltas are dropped
 # NOISY_SOURCE_MATRIX = True
 
-
+SPINE_TRAIN_EPOCHS = 1000
 # ====== TYPES ======
 class Vector:
     x: float
@@ -94,9 +97,17 @@ class Sequence:
         self.distance_matrix = self.coord_to_distance_matrix(self.coord_matrix)
 
     def __repr__(self):
+        # Print Seq String but if longer than 50 chars use ellipsis
+        repr_seq_str = (
+            self.seq_str[:50] + "..." if len(self.seq_str) > 50 else self.seq_str
+        )
+
         msg = "\n"
         msg += " ========= SEQUENCE ======== \n"
         msg += "\n"
+        msg += f"ID: {self.seq_id} \n"
+        msg += f"SEQ: {repr_seq_str} \n"
+        msg += "---------------------------- \n"
         msg += "ENCODING: \n"
         msg += f"{self.encoding} \n"
         msg += "---------------------------- \n"
@@ -164,7 +175,7 @@ class Sequence:
         return Tensor(coord_matrix)
 
     @staticmethod
-    def coords_matrix_to_list(coord_matrix: Tensor) -> list[Vector]:
+    def coord_matrix_to_list(coord_matrix: Tensor) -> list[Vector]:
         """
         Create a list of coordinates from a tensor.
         :param coord_matrix: Tensor of coordinates
@@ -174,7 +185,7 @@ class Sequence:
         for coord in coord_matrix:
             coords.append(Vector(coord[0], coord[1], coord[2]))
         return coords
-    
+
     @staticmethod
     def compute_neighbors_list(
         coord_list: list[Vector], n_neighbors: int
@@ -270,30 +281,33 @@ class Sequence:
         return coord_matrix
 
     @staticmethod
-    def coord_to_distance_matrix(coord_matrix:Tensor) -> Tensor:
+    def coord_to_distance_matrix(coord_matrix: Tensor) -> Tensor:
         """
         Compute the distance matrix from a coordinate matrix.
         :param coord_matrix: Tensor of shape [N, 3] containing the coordinates.
         :return: Tensor of shape [N, N] representing the distance matrix.
         """
         # Compute pairwise distances using broadcasting
-        return torch.norm(coord_matrix.unsqueeze(0) - coord_matrix.unsqueeze(1), dim=2)
-    
+        dist = torch.norm(coord_matrix.unsqueeze(0) - coord_matrix.unsqueeze(1), dim=2)
+
+        return dist
+
     @staticmethod
-    def compute_delta_matrix(coord_matrix: Tensor, target_distance_matrix: Tensor) -> Tensor:
+    def compute_delta_matrix(
+        coord_matrix: Tensor, target_distance_matrix: Tensor
+    ) -> Tensor:
         new_distance_matrix = Sequence.coord_to_distance_matrix(coord_matrix)
         dist_diff = new_distance_matrix - target_distance_matrix
         d_coords = coord_matrix.unsqueeze(0) - coord_matrix.unsqueeze(1)
-
 
         u_vecs = d_coords / (new_distance_matrix.unsqueeze(2) + EPS)
         deltas = (u_vecs * dist_diff.unsqueeze(2)).sum(dim=1)
         mags = torch.norm(deltas, dim=1, keepdim=True)
         scale = MAX_DELTA / (mags + EPS)
         deltas = deltas * scale
-        
+
         return deltas
-    
+
     def apply_heat(self, target_distance_matrix: Tensor) -> Tensor:
         """
         Apply Gaussian noise to the distance matrix.
@@ -303,14 +317,14 @@ class Sequence:
         target_distance_matrix += noise
         return target_distance_matrix
 
-    def drop(self, tensor: Tensor, drop_rate:float) -> Tensor:
+    def drop(self, tensor: Tensor, drop_rate: float) -> Tensor:
         """
         Randomly drop elements from a tensor with a given probability.
         """
         mask = torch.rand(tensor.shape) > drop_rate
         tensor = tensor * mask
         return tensor
-    
+
     def adjust_coords(self, n_iter: int) -> list[Vector]:
         """
         Make coords match the distance matrix via simulation.
@@ -320,14 +334,16 @@ class Sequence:
         4. Calculate unit vectors from coord i to coord j.
         Only contributions from pairs with distances <= MAX_DISTANCE are considered.
         """
-        
-        source_target_matrix = self.distance_matrix # Contant throughout
-        coord_matrix = self.coords_list_to_matrix(self.coords) # Changes every iteration
+
+        source_target_matrix = self.distance_matrix  # Contant throughout
+        coord_matrix = self.coords_list_to_matrix(
+            self.coords
+        )  # Changes every iteration
         recording = []
 
         for curr in range(n_iter):
             print(f"Iteration {curr+1}/{n_iter}")
-            
+
             # 1. Initiate Target Structure Via Distance Matrix
             target_distance_matrix = source_target_matrix.clone()
             # 2. Apply Heat to the Structure.
@@ -391,7 +407,9 @@ class Sequence:
             raise ValueError("Need at least 3 points in each set.")
 
         # Build numpy arrays
-        def to_np(v): return np.array([v.x, v.y, v.z], dtype=float)
+        def to_np(v):
+            return np.array([v.x, v.y, v.z], dtype=float)
+
         p0, p1, p2 = map(to_np, input_coords[:3])
         q0, q1, q2 = map(to_np, target_coords[:3])
 
@@ -441,20 +459,18 @@ class Sequence:
         ds = aligned[1] - aligned[0]
         dn_s = ds / (np.linalg.norm(ds) + EPS)
         # Target direction
-        dt = (q1 - q0)
+        dt = q1 - q0
         dn_t = dt / (np.linalg.norm(dt) + EPS)
 
         # Compute signed angle
         dot = np.clip(np.dot(dn_s, dn_t), -1.0, 1.0)
         angle = np.arccos(dot)
         # Use the (possibly degenerate) target normal to sign the twist
-        axis = n_target_norm if n_target_norm is not None else np.array([0,0,1])
+        axis = n_target_norm if n_target_norm is not None else np.array([0, 0, 1])
         sign = np.sign(np.dot(np.cross(dn_s, dn_t), axis))
         twist = R.from_rotvec(axis * (angle * sign))
 
-        final_pts = np.array([
-            q0 + twist.apply(pt - q0) for pt in aligned
-        ])
+        final_pts = np.array([q0 + twist.apply(pt - q0) for pt in aligned])
 
         # Convert back to Vectors
         return [Vector(x, y, z) for x, y, z in final_pts]
@@ -784,11 +800,13 @@ class SequenceDataset:
 
     source_sequences: list[Sequence]
 
-    def __init__(self, n_sequences: int = N_SEQUENCES):
+    def __init__(self, n_sequences: int, sequence_size: int):
         self.n_sequences = n_sequences
+        self.sequence_size = sequence_size
         self.source_sequences = self.get_real_sequences()
 
     def get_real_sequences(self):
+        sequence_size = self.sequence_size
         label_df = pd.read_csv(LABELS_PATH)
         sequences_df = pd.read_csv(SEQUENCES_PATH)
         # using a windowed approach
@@ -804,14 +822,14 @@ class SequenceDataset:
             seq_id = sequences_df.iloc[i]["target_id"]
             seq_str = sequences_df.iloc[i]["sequence"]
 
-            if len(seq_str) < SEQUENCE_SIZE:
+            if len(seq_str) < sequence_size:
                 continue
 
-            splits = len(seq_str) // SEQUENCE_SIZE
+            splits = len(seq_str) // sequence_size
             for i in range(splits):
-                start_index = i * SEQUENCE_SIZE
-                end_index = start_index + SEQUENCE_SIZE
-                
+                start_index = i * sequence_size
+                end_index = start_index + sequence_size
+
                 if len(sequences) >= n_sequences:
                     print("Target number of sequences reached.")
                     break
@@ -830,11 +848,13 @@ class SequenceDataset:
                 coords = []
                 for x, y, z in zip(x_1, y_1, z_1):
                     coords.append(Vector(x, y, z))
+                    
                 seq = Sequence(
                     seq_str=seq_str[start_index:end_index],
                     seq_id=f"{seq_id} split_{i+1}",
                     coords=coords[start_index:end_index],
                 )
+                
                 sequences.append(seq)
         self.source_sequences = sequences
         return sequences
@@ -884,27 +904,110 @@ class SequenceDataset:
 # ======== MODELS ==========
 class SpineModel(nn.Module):
     """
-    Model Takes in Sequence of Length 5 but distance of the 5th is missing
-    and predicts the distance of the 5th residue to the first 4 residues.
-    5th residues encoding is available.
-    Meant to simulate the spine physics. eg. bend and torsional rigidity by placing next probable spine residue
-    Via distance matrix.
+    Takes in encoding shape (4, 5) and outputs distance matrix shape (5, 5)
+    eg. ----------------------------
+    ENCODING:
+    tensor([[0., 1., 0., 0.],
+            [0., 0., 0., 0.],
+            [0., 1., 0., 0.],
+            [1., 0., 0., 0.],
+            [1., 0., 0., 0.]])
+    ----------------------------
+
+    DISTANCE MATRIX:
+    tensor([[ 0.0000,  6.6771, 11.1824, 14.6738, 16.7382],
+            [ 6.6771,  0.0000,  6.8508, 12.7772, 16.7564],
+            [11.1824,  6.8508,  0.0000,  6.6834, 11.6652],
+            [14.6738, 12.7772,  6.6834,  0.0000,  5.5299],
+            [16.7382, 16.7564, 11.6652,  5.5299,  0.0000]])
     """
 
-    def __init__(self):
+    def __init__(self, n_sequences: int = 500, sequence_size: int = 5):
         super().__init__()
-        self.dataset = self.generate_training_data()
+        self.n_sequences = n_sequences
+        self.sequence_size = sequence_size
 
-    def generate_training_data(self):
+        self.dataloader = self.generate_dataloader()
+        
+        self.model = nn.Sequential(
+            nn.Linear(4 * sequence_size, 128),
+            nn.ReLU(),
+            nn.Linear(128, 64),
+            nn.ReLU(),
+            nn.Linear(64, sequence_size * sequence_size),
+        )
+        self.loss_fn = nn.MSELoss()
+        self.optimizer = Adam(self.model.parameters(), lr=0.001)
+        
+
+    # ---------------------------------------------------------------------- #
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Forward pass through the model.
+        :param x: Input tensor of shape (batch_size, 4 * sequence_size)
+        :return: Output tensor of shape (batch_size, sequence_size * sequence_size)
+        """
+        x = x.view(x.size(0), -1)
+        x = self.model(x)
+        x = x.view(-1, self.sequence_size, self.sequence_size)
+        return x
+        
+        
+    def generate_dataloader(self):
         """
         Generate training data for the model.
         1. Take a sequence of length 5
-        2. Predict the distance of the 5th residue to the first 4 residues.
+        2. Predict Distance Matrix using Encoding
         """
-        dataset = SequenceDataset(n_sequences=SPINE_WINDOW_SIZE)
+        training_data = SequenceDataset(
+            n_sequences=self.n_sequences, sequence_size=self.sequence_size
+        )
 
-        # [print(seq) for seq in dataset.source_sequences[:5]]
-        return dataset
+        sequences = training_data.source_sequences
+        [print(seq) for seq in sequences]
+
+        input_list = []
+        target_list = []
+        for seq in sequences:
+            input_list.append(seq.encoding)  # shape (4, 5)
+            target_list.append(seq.distance_matrix)  # shape (5, 5)
+            
+        # Convert to Dataset
+        input_tensor = torch.stack(input_list)
+        target_tensor = torch.stack(target_list)
+        # build a mask that is True for rows that are 100 % finite
+        mask_in  = torch.isfinite(input_tensor.reshape(input_tensor.size(0), -1)).all(1)
+        mask_tgt = torch.isfinite(target_tensor.reshape(target_tensor.size(0), -1)).all(1)
+        
+        keep = mask_in & mask_tgt            # keep only samples that are clean
+
+        input_tensor  = input_tensor[keep]
+        target_tensor = target_tensor[keep]
+        assert not torch.isnan(input_tensor).any(),  "NaN in inputs"
+        assert not torch.isinf(input_tensor).any(),  "Inf in inputs"
+        assert not torch.isnan(target_tensor).any(), "NaN in targets"
+        assert not torch.isinf(target_tensor).any(), "Inf in targets"
+        dataset = TensorDataset(input_tensor, target_tensor)
+        
+        dataloader = DataLoader(dataset, batch_size=16, shuffle=True)
+        return dataloader
+    
+    def train_model(self):
+        """
+        Train the model on the generated training data.
+        """
+        self.train()
+        for epoch in range(SPINE_TRAIN_EPOCHS):
+            for batch in self.dataloader:
+                inputs, targets = batch
+                self.optimizer.zero_grad()
+                outputs = self(inputs)
+                loss = self.loss_fn(outputs, targets)
+                loss.backward()
+                self.optimizer.step()
+            if epoch % 10 == 0:
+                print(f"Epoch {epoch + 1}/{SPINE_TRAIN_EPOCHS}, Loss: {loss.item():.4f}")
+ 
 
 
 if __name__ == "__main__":
@@ -935,22 +1038,50 @@ if __name__ == "__main__":
     # # 5. Plot the original and adjusted coordinates (optional)
     # seq.plot([seq.source_coords, seq.coords], ["Original", "Adjusted"])
 
-    # =============== Test 2 ==============
-    print("Loading Sequence Dataset")
-    seq_dataset = SequenceDataset()
-    print(len(seq_dataset.source_sequences))
-    # Initialize a real sequence (Distance Matrix Assigned)
-    # seq_dataset.get_stats()
-    print("Loading Random Sequence")
-    # seq = seq_dataset.get_random_sequence()
-    seq = seq_dataset.source_sequences[0]
-    print(f"Sequence Length: {len(seq.seq_str)}")
-    # seq._coords_to_noise()
-    # seq.adjust_coords(n_iter=100, use_neighbors=USE_NEIGHBORS)
-    seq._test_adjust_coords_video(iterations=ITERATIONS, speed=VIDEO_SPEED)
+    # # =============== Test 2 ==============
+    # print("Loading Sequence Dataset")
+    # seq_dataset = SequenceDataset(n_sequences=N_SEQUENCES, sequence_size=SEQUENCE_SIZE)
+    # print(len(seq_dataset.source_sequences))
+    # # Initialize a real sequence (Distance Matrix Assigned)
+    # # seq_dataset.get_stats()
+    # print("Loading Random Sequence")
+    # # seq = seq_dataset.get_random_sequence()
+    # seq = seq_dataset.source_sequences[0]
+    # print(f"Sequence Length: {len(seq.seq_str)}")
+    # # seq._coords_to_noise()
+    # # seq.adjust_coords(n_iter=100, use_neighbors=USE_NEIGHBORS)
+    # seq._test_adjust_coords_video(iterations=ITERATIONS, speed=VIDEO_SPEED)
 
-    Sequence.compute_similarity_us_align()
+    # Sequence.compute_similarity_us_align()
 
-    # # ================ Test 3 Next Residue Model ==============
+    # ================ Test 3 Next Residue Model ==============
 
-    # next_res_model = NextResidueModel()
+    spine_model = SpineModel(n_sequences=N_SEQUENCES, sequence_size=SPINE_WINDOW_SIZE)
+    # Generate training data
+    spine_data_loader = spine_model.dataloader
+    torch.set_printoptions(precision=4, sci_mode=False)
+
+    # ------------------------------------------------------------------
+    # get a *copy* of the input & target before training
+    test_input  = spine_data_loader.dataset.tensors[0][0].unsqueeze(0).float()
+    test_target = spine_data_loader.dataset.tensors[1][0].unsqueeze(0).float()
+
+    # ------------------------------------------------------------------
+    with torch.no_grad():
+        output0 = spine_model(test_input)
+    # ------------------------------------------------------------------
+    spine_model.train_model()
+    # ------------------------------------------------------------------
+    print(">>> BEFORE training")
+    print("MSE =", torch.nn.functional.mse_loss(output0, test_target).item())
+    print(output0)
+    
+    print("\n>>> AFTER training")
+    spine_model.eval()              # turn off dropout / batch‑norm if you add them later
+    with torch.no_grad():           # no need to track gradients during evaluation
+        output1 = spine_model(test_input)
+    print("MSE =", torch.nn.functional.mse_loss(output1, test_target).item())
+    print(output1)
+
+    print("\nTarget")
+    print(test_target)
