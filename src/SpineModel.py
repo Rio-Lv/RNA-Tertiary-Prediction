@@ -28,11 +28,11 @@ from torch.optim import Adam
 from torch.utils.data import DataLoader, TensorDataset, random_split
 
 # ------------------------- hyper‑parameters ------------------------- #
-SPINE_TRAIN_EPOCHS = 4_000
+SPINE_TRAIN_EPOCHS = 5000
 SPINE_MODEL_LR = 0.001
 SPINE_TRAIN_BATCH_SIZE = 64**2
 SPINE_DATA_TRAIN_FRAC = 0.8
-SPINE_WINDOW_SIZE = 6
+SPINE_WINDOW_SIZE = 5
 SPINE_N_SEQUENCES = 10_000
 
 DATASET_PATH = pathlib.Path("data/spine_dataset.pt")
@@ -40,7 +40,7 @@ MODEL_PATH = pathlib.Path("models/spine_model.pt")
 
 # flip either flag to *True* before running to wipe the corresponding cache
 RESET_DATA = False
-RESET_MODEL = False
+RESET_MODEL = True
 os.chdir(pathlib.Path(__file__).parent.resolve())
 # ------------------------ cache management ------------------------- #
 
@@ -94,12 +94,12 @@ class SpineModel(nn.Module):
         self.sequence_size = sequence_size
 
         self.model = nn.Sequential(
-            nn.Linear(4 * sequence_size, 128),
+            nn.Linear(4 * sequence_size, 32),
             nn.ReLU(),
-            nn.Linear(128, 64),
-            nn.Dropout(0.3),
+            nn.Linear(32, 32),
+            nn.Dropout(0.2),
             nn.ReLU(),
-            nn.Linear(64, sequence_size * sequence_size),
+            nn.Linear(32, sequence_size * sequence_size),
         )
         self.loss_fn = nn.MSELoss()
         self.optimizer = Adam(self.model.parameters(), lr=lr)
@@ -150,6 +150,10 @@ class SpineModel(nn.Module):
         else:
             print(f"=== Loaded dataset from {DATASET_PATH} ===")
             ds = _reconstruct_ds(cache)
+            # shuffle the dataset to avoid overfitting
+            indices = torch.randperm(len(ds))
+            ds = TensorDataset(ds.tensors[0][indices], ds.tensors[1][indices])
+            print("=== Shuffled dataset ===")
 
         n_train = int(SPINE_DATA_TRAIN_FRAC * len(ds))
         n_val = len(ds) - n_train
@@ -217,12 +221,44 @@ class SpineModel(nn.Module):
 # --------------------------- script entry -------------------------- #
 
 if __name__ == "__main__":
-
     torch.set_printoptions(precision=4, sci_mode=False)
 
     model = SpineModel()
-    train_loader, val_loader = model.get_dataloaders()
+    tr_loader, vl_loader = model.get_dataloaders()
 
-    # Always train (continue training if weights were loaded)
-    model.fit(train_loader, val_loader)
+    # ── grab one validation sample ──────────────────────────────────
+    sample_x, target = vl_loader.dataset[0]          # (4, L) , (L, L)
+    sample_x = sample_x.unsqueeze(0)                 # -> (1, 4, L)
+
+    with torch.no_grad():
+        out_before = model(sample_x).squeeze(0)      # (L, L)
+        mse_before = nn.functional.mse_loss(out_before, target).item()
+
+    # ── train (continues from cached weights if any) ────────────────
+    model.fit(tr_loader, vl_loader)
+
+    with torch.no_grad():
+        out_after  = model(sample_x).squeeze(0)
+        mse_after  = nn.functional.mse_loss(out_after, target).item()
+
+    # ── nicely formatted report ─────────────────────────────────────
+    print(f"\nInput encoding shape : {sample_x.shape[1:]}")   # (4, L)
+    print(f"Target distance shape : {target.shape}")          # (L, L)
+
+    print(f"\n>>> TARGET")
+    print(target)
+
+    print(f"\n>>> BEFORE training — MSE vs. target = {mse_before:.4f}")
+    print(out_before)
+
+    print(f"\n>>> AFTER  training — MSE vs. target = {mse_after:.4f}")
+    print(out_after)
+
+    # absolute error matrices (optional, comment out if too verbose)
+    print("\n|before - target| :")
+    print((out_before - target).abs())
+
+    print("\n|after - target|  :")
+    print((out_after  - target).abs())
+
     model.plot_history()
