@@ -1,6 +1,12 @@
 from torch import Tensor
 import torch
+import numpy as np
+from scipy.spatial.transform import Rotation as R
+import matplotlib
+import matplotlib.pyplot as plt
 
+
+EPS = 1e-8
 
 # ====== TYPES ======
 class Vector:
@@ -98,17 +104,16 @@ def coord_to_distance_matrix(coord_matrix: Tensor) -> Tensor:
 def compute_delta_matrix(
     coord_matrix: Tensor,
     target_distance_matrix: Tensor,
-    eps: float = 1e-8,
     max_delta: float = 0.01,
 ) -> Tensor:
     new_distance_matrix = coord_to_distance_matrix(coord_matrix)
     dist_diff = new_distance_matrix - target_distance_matrix
     d_coords = coord_matrix.unsqueeze(0) - coord_matrix.unsqueeze(1)
 
-    u_vecs = d_coords / (new_distance_matrix.unsqueeze(2) + eps)
+    u_vecs = d_coords / (new_distance_matrix.unsqueeze(2) + EPS)
     deltas = (u_vecs * dist_diff.unsqueeze(2)).sum(dim=1)
     mags = torch.norm(deltas, dim=1, keepdim=True)
-    scale = max_delta / (mags + eps)
+    scale = max_delta / (mags + EPS)
     deltas = deltas * scale
 
     return deltas
@@ -138,7 +143,6 @@ def adjust_coords(
     coords: list[Vector],
     target_matrix: Tensor,
     temperature: float,
-    eps: float,
     delta_drop_rate: float,
     max_delta: float,
 ) -> list[Vector]:
@@ -164,7 +168,6 @@ def adjust_coords(
         deltas = compute_delta_matrix(
             coord_matrix=coord_matrix,
             target_distance_matrix=target_distance_matrix,
-            eps=eps,
             max_delta=max_delta,
         )
         # 3.1. Drop some deltas to simulate imperfect information
@@ -180,3 +183,151 @@ def adjust_coords(
 
     return coords, recording
 
+   
+def align(input_coords:list[Vector], target_coords:list[Vector]):
+    """
+    1. Use the first 3 coordinates to create a plane for self.coords and target_coords.
+    2. Create a quaternion from the planes using SciPy to align the plane normal of self.coords
+    to that of target_coords.
+    3. Rotate self.coords by the quaternion.
+    4. Translate all points so that self.coords[0] aligns with target_coords[0].
+    5. Align the unit vector from self.coords[0] to self.coords[1] with the unit vector from
+    target_coords[0] to target_coords[1] (apply an additional twist rotation about the plane normal).
+    6. Return the new coordinates as a list of Vector objects.
+    """
+
+    if len(input_coords) < 3 or len(target_coords) < 3:
+        raise ValueError("Need at least 3 points in each set.")
+
+    # Build numpy arrays
+    def to_np(v):
+        return np.array([v.x, v.y, v.z], dtype=float)
+
+    p0, p1, p2 = map(to_np, input_coords[:3])
+    q0, q1, q2 = map(to_np, target_coords[:3])
+
+    # Source normal
+    v1, v2 = p1 - p0, p2 - p0
+    n_source = np.cross(v1, v2)
+    norm_s = np.linalg.norm(n_source)
+
+    # Target normal
+    w1, w2 = q1 - q0, q2 - q0
+    n_target = np.cross(w1, w2)
+    norm_t = np.linalg.norm(n_target)
+
+    # Normalize if safe, otherwise mark as degenerate
+    if norm_s > EPS:
+        n_source_norm = n_source / norm_s
+    else:
+        n_source_norm = None
+
+    if norm_t > EPS:
+        n_target_norm = n_target / norm_t
+    else:
+        n_target_norm = None
+
+    # STEP 2: Align normals with try/except
+    if n_source_norm is not None and n_target_norm is not None:
+        try:
+            # Note: align_vectors takes (target, source)
+            rot_obj, _ = R.align_vectors([n_target_norm], [n_source_norm])
+        except ValueError:
+            # Degenerate quaternion; fall back to identity
+            rot_obj = R.identity()
+    else:
+        # One of the normals was degenerate
+        rot_obj = R.identity()
+
+    # STEP 3: Rotate all input points
+    pts = np.vstack([to_np(v) for v in input_coords])
+    rotated = rot_obj.apply(pts)
+
+    # STEP 4: Translate so first points coincide
+    translation = q0 - rotated[0]
+    aligned = rotated + translation
+
+    # STEP 5: Twist alignment of first‐to‐second vector
+    # Source direction
+    ds = aligned[1] - aligned[0]
+    dn_s = ds / (np.linalg.norm(ds) + EPS)
+    # Target direction
+    dt = q1 - q0
+    dn_t = dt / (np.linalg.norm(dt) + EPS)
+
+    # Compute signed angle
+    dot = np.clip(np.dot(dn_s, dn_t), -1.0, 1.0)
+    angle = np.arccos(dot)
+    # Use the (possibly degenerate) target normal to sign the twist
+    axis = n_target_norm if n_target_norm is not None else np.array([0, 0, 1])
+    sign = np.sign(np.dot(np.cross(dn_s, dn_t), axis))
+    twist = R.from_rotvec(axis * (angle * sign))
+
+    final_pts = np.array([q0 + twist.apply(pt - q0) for pt in aligned])
+
+    # Convert back to Vectors
+    return [Vector(x, y, z) for x, y, z in final_pts]
+
+def plot_coords_list(coords_list: list[list[Vector]], set_names: list[str] = None):
+    """
+    Plot multiple sequences by marking each point and connecting each coordinate
+    i to i+1 with a line. Each vector set in coords_list is plotted as a separate
+    line using a distinct color. The line is rendered with added transparency and
+    thickness, and the points are larger.
+
+    Parameters:
+    coords_list (list[list[Vector]]): A list containing one or more lists of Vector objects.
+                                        If None, uses self.coords as a single vector set.
+    set_names (list[str]): Optional list of labels for each coordinate set. The length of
+                            set_names must match the number of coordinate sets.
+    """
+
+    coords_list = [align(coords, coords_list[0]) for coords in coords_list]
+
+    # If no set names are provided, use default names.
+    if set_names is None:
+        set_names = [f"Set {i+1}" for i in range(len(coords_list))]
+    elif len(set_names) != len(coords_list):
+        raise ValueError(
+            "Length of set_names must equal the number of coordinate sets in coords_list"
+        )
+
+    fig = plt.figure()
+    ax = fig.add_subplot(111, projection="3d")
+
+    # Use a colormap to assign a distinct color to each coordinate set.
+    cmap = matplotlib.colormaps.get_cmap("tab10")
+
+    # Iterate over each vector set and plot the points and connecting line.
+    for i in range(len(coords_list)):
+        coords = coords_list[i]
+        x = [coord.x for coord in coords]
+        y = [coord.y for coord in coords]
+        z = [coord.z for coord in coords]
+
+        color = cmap(i)  # Get a distinct color for the current set
+
+        # Scatter plot the points with increased size.
+        ax.scatter(x, y, z, s=100, color=color, label=f"{set_names[i]} Points")
+
+        # Connect the points with a line that is thicker and partially transparent.
+        ax.plot(
+            x,
+            y,
+            z,
+            color=color,
+            alpha=0.7,
+            linewidth=2,
+            label=f"{set_names[i]} Path",
+        )
+
+    # Label the axes.
+    ax.set_xlabel("X")
+    ax.set_ylabel("Y")
+    ax.set_zlabel("Z")
+
+    # Add a title and legend for clarity.
+    ax.set_title("3D Vector Plot")
+    ax.legend()
+
+    plt.show()
