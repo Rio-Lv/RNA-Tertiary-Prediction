@@ -14,8 +14,8 @@ from scipy.spatial.transform import Rotation as R
 import numpy as np
 import time
 from tools import compute_similarity
-from torch.utils.data import DataLoader, TensorDataset
-from torch.utils.data import Dataset
+from torch.utils.data import DataLoader, TensorDataset, random_split
+
 from torch.optim import Adam
 
 # set here to cwd
@@ -23,8 +23,8 @@ os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
 # ====== CONSTANTS ======
 SEQUENCE_SIZE = 60
-SPINE_WINDOW_SIZE = 5
-N_SEQUENCES = 1000
+
+N_SEQUENCES = 200
 # N_NEAREST_NEIGBORS = 30  # If using n nearest neighbors for adjustment
 # MAX_DISTANCE = 32  # If using neightbor within distance for adjustment
 # USE_NEIGHBORS = False  # If using n nearest neighbors for adjustment
@@ -47,9 +47,7 @@ EPS = 1e-8  # Small value to avoid division by zero
 DELTA_DROP_RATE = 0.5  # Rate at which deltas are dropped
 # NOISY_SOURCE_MATRIX = True
 
-SPINE_TRAIN_EPOCHS = 10000
-SPINE_MODEL_LR = 0.0002
-SPINE_TRAIN_BATCH_SIZE = 512
+
 # ====== TYPES ======
 class Vector:
     x: float
@@ -805,9 +803,9 @@ class SequenceDataset:
     def __init__(self, n_sequences: int, sequence_size: int):
         self.n_sequences = n_sequences
         self.sequence_size = sequence_size
-        self.source_sequences = self.get_real_sequences()
+        self.source_sequences = self.generate_source_sequences()
 
-    def get_real_sequences(self):
+    def generate_source_sequences(self):
         sequence_size = self.sequence_size
         label_df = pd.read_csv(LABELS_PATH)
         sequences_df = pd.read_csv(SEQUENCES_PATH)
@@ -904,128 +902,6 @@ class SequenceDataset:
 
 
 # ======== MODELS ==========
-class SpineModel(nn.Module):
-    """
-    Takes in encoding shape (4, 5) and outputs distance matrix shape (5, 5)
-    eg. ----------------------------
-    ENCODING:
-    tensor([[0., 1., 0., 0.],
-            [0., 0., 0., 0.],
-            [0., 1., 0., 0.],
-            [1., 0., 0., 0.],
-            [1., 0., 0., 0.]])
-    ----------------------------
-
-    DISTANCE MATRIX:
-    tensor([[ 0.0000,  6.6771, 11.1824, 14.6738, 16.7382],
-            [ 6.6771,  0.0000,  6.8508, 12.7772, 16.7564],
-            [11.1824,  6.8508,  0.0000,  6.6834, 11.6652],
-            [14.6738, 12.7772,  6.6834,  0.0000,  5.5299],
-            [16.7382, 16.7564, 11.6652,  5.5299,  0.0000]])
-    """
-
-    def __init__(self, n_sequences: int, sequence_size: int, lr: float ):
-        super().__init__()
-        self.n_sequences = n_sequences
-        self.sequence_size = sequence_size
-
-        self.dataloader = self.generate_dataloader()
-        
-        self.model = nn.Sequential(
-            nn.Linear(4 * sequence_size, 128),
-            nn.ReLU(),
-            nn.Linear(128, 64),
-            nn.ReLU(),
-            nn.Linear(64, sequence_size * sequence_size),
-        )
-        self.loss_fn = nn.MSELoss()
-        self.optimizer = Adam(self.model.parameters(), lr=lr)
-        self.loss_history = []
-        
-
-    # ---------------------------------------------------------------------- #
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """
-        Forward pass through the model.
-        :param x: Input tensor of shape (batch_size, 4 * sequence_size)
-        :return: Output tensor of shape (batch_size, sequence_size * sequence_size)
-        """
-        x = x.view(x.size(0), -1)
-        x = self.model(x)
-        x = x.view(-1, self.sequence_size, self.sequence_size)
-        return x
-        
-        
-    def generate_dataloader(self):
-        """
-        Generate training data for the model.
-        1. Take a sequence of length 5
-        2. Predict Distance Matrix using Encoding
-        """
-        training_data = SequenceDataset(
-            n_sequences=self.n_sequences, sequence_size=self.sequence_size
-        )
-
-        sequences = training_data.source_sequences
-        [print(seq) for seq in sequences]
-
-        input_list = []
-        target_list = []
-        for seq in sequences:
-            input_list.append(seq.encoding)  # shape (4, 5)
-            target_list.append(seq.distance_matrix)  # shape (5, 5)
-            
-        # Convert to Dataset
-        input_tensor = torch.stack(input_list)
-        target_tensor = torch.stack(target_list)
-        # build a mask that is True for rows that are 100 % finite
-        mask_in  = torch.isfinite(input_tensor.reshape(input_tensor.size(0), -1)).all(1)
-        mask_tgt = torch.isfinite(target_tensor.reshape(target_tensor.size(0), -1)).all(1)
-        
-        keep = mask_in & mask_tgt            # keep only samples that are clean
-
-        input_tensor  = input_tensor[keep]
-        target_tensor = target_tensor[keep]
-        assert not torch.isnan(input_tensor).any(),  "NaN in inputs"
-        assert not torch.isinf(input_tensor).any(),  "Inf in inputs"
-        assert not torch.isnan(target_tensor).any(), "NaN in targets"
-        assert not torch.isinf(target_tensor).any(), "Inf in targets"
-        dataset = TensorDataset(input_tensor, target_tensor)
-        
-        dataloader = DataLoader(dataset, batch_size=SPINE_TRAIN_BATCH_SIZE, shuffle=True)
-        return dataloader
-    
-    def train_model(self):
-        """
-        Train the model on the generated training data.
-        """
-        self.train()
-        for epoch in range(SPINE_TRAIN_EPOCHS):
-            for batch in self.dataloader:
-                inputs, targets = batch
-                self.optimizer.zero_grad()
-                outputs = self(inputs)
-                loss = self.loss_fn(outputs, targets)
-                loss.backward()
-                self.optimizer.step()
-            epoch_loss = loss.item()
-            self.loss_history.append(epoch_loss)      # ←‑ save it
-            if epoch % 10 == 0:
-                print(f"Epoch {epoch + 1}/{SPINE_TRAIN_EPOCHS}, Loss: {epoch_loss:.4f}")
- 
-    def plot_loss(self):
-        """
-        Plot the training loss over epochs.
-        """
-        plt.plot(self.loss_history)
-        plt.xlabel("Epochs")
-        plt.ylabel("Loss")
-        plt.title("Training Loss")
-        
-        # limit y axis to 5 to 0
-        plt.ylim(0, 5)
-        plt.show()
-        return self.loss_history
 
 if __name__ == "__main__":
 
@@ -1055,51 +931,20 @@ if __name__ == "__main__":
     # # 5. Plot the original and adjusted coordinates (optional)
     # seq.plot([seq.source_coords, seq.coords], ["Original", "Adjusted"])
 
-    # # =============== Test 2 ==============
-    # print("Loading Sequence Dataset")
-    # seq_dataset = SequenceDataset(n_sequences=N_SEQUENCES, sequence_size=SEQUENCE_SIZE)
-    # print(len(seq_dataset.source_sequences))
-    # # Initialize a real sequence (Distance Matrix Assigned)
-    # # seq_dataset.get_stats()
-    # print("Loading Random Sequence")
-    # # seq = seq_dataset.get_random_sequence()
-    # seq = seq_dataset.source_sequences[0]
-    # print(f"Sequence Length: {len(seq.seq_str)}")
-    # # seq._coords_to_noise()
-    # # seq.adjust_coords(n_iter=100, use_neighbors=USE_NEIGHBORS)
-    # seq._test_adjust_coords_video(iterations=ITERATIONS, speed=VIDEO_SPEED)
+    # =============== Test 2 ==============
+    print("Loading Sequence Dataset")
+    seq_dataset = SequenceDataset(n_sequences=N_SEQUENCES, sequence_size=SEQUENCE_SIZE)
+    print(len(seq_dataset.source_sequences))
+    # Initialize a real sequence (Distance Matrix Assigned)
+    # seq_dataset.get_stats()
+    print("Loading Random Sequence")
+    # seq = seq_dataset.get_random_sequence()
+    seq = seq_dataset.source_sequences[0]
+    print(f"Sequence Length: {len(seq.seq_str)}")
+    # seq._coords_to_noise()
+    # seq.adjust_coords(n_iter=100, use_neighbors=USE_NEIGHBORS)
+    seq._test_adjust_coords_video(iterations=ITERATIONS, speed=VIDEO_SPEED)
 
     # Sequence.compute_similarity_us_align()
 
-    # ================ Test 3 Next Residue Model ==============
-
-    spine_model = SpineModel(n_sequences=N_SEQUENCES, sequence_size=SPINE_WINDOW_SIZE, lr=SPINE_MODEL_LR)
-    # Generate training data
-    spine_data_loader = spine_model.dataloader
-    torch.set_printoptions(precision=4, sci_mode=False)
-
-    # ------------------------------------------------------------------
-    # get a *copy* of the input & target before training
-    test_input  = spine_data_loader.dataset.tensors[0][0].unsqueeze(0).float()
-    test_target = spine_data_loader.dataset.tensors[1][0].unsqueeze(0).float()
-
-    # ------------------------------------------------------------------
-    with torch.no_grad():
-        output0 = spine_model(test_input)
-    # ------------------------------------------------------------------
-    spine_model.train_model()
-    # ------------------------------------------------------------------
-    print(">>> BEFORE training")
-    print("MSE =", torch.nn.functional.mse_loss(output0, test_target).item())
-    print(output0)
     
-    print("\n>>> AFTER training")
-    spine_model.eval()              # turn off dropout / batch‑norm if you add them later
-    with torch.no_grad():           # no need to track gradients during evaluation
-        output1 = spine_model(test_input)
-    print("MSE =", torch.nn.functional.mse_loss(output1, test_target).item())
-    print(output1)
-
-    print("\nTarget")
-    print(test_target)
-    spine_model.plot_loss()
