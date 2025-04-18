@@ -23,16 +23,18 @@ from tools import *
 os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
 # ====== CONSTANTS ======
-SEQUENCE_SIZE = 220
+SEQUENCE_SIZE = 160
 
-N_SEQUENCES = 20
+N_SEQUENCES = 50
 # N_NEAREST_NEIGBORS = 30  # If using n nearest neighbors for adjustment
 # MAX_DISTANCE = 32  # If using neightbor within distance for adjustment
 # USE_NEIGHBORS = False  # If using n nearest neighbors for adjustment
 
-ITERATIONS = 5000
-TEMPERATURE = 0.5
-MAX_DELTA = 0.1
+ITERATIONS = 10000
+ITERATIONS_PER_RESIDUE = 50
+TEMPERATURE = 0.1
+MAX_DELTA = 0.01
+
 LABELS_PATH = "data/train_labels.csv"
 SEQUENCES_PATH = "data/train_sequences.csv"
 SEQUENCE_INDEX = 868
@@ -41,10 +43,10 @@ MAX_SPINE_SPACE = 5  # Maximum distance between two points in the spine
 
 OPEN_PLOT = True  # If True, will open a plot window for each sequence
 GRAVITY = 0.001
-VIDEO_SPEED = ITERATIONS // 100  # Speed of the video in frames per second
+VIDEO_SPEED = ITERATIONS // 300  # Speed of the video in frames per second
 
 DIR_BIAS_X = 1  # Bias for the x direction in random walk
-DELTA_DROP_RATE = 0.5  # Rate at which deltas are dropped
+DELTA_DROP_RATE = 0.1  # Rate at which deltas are dropped
 # NOISY_SOURCE_MATRIX = True
 
 
@@ -200,6 +202,7 @@ class Sequence:
             temperature=TEMPERATURE,
             delta_drop_rate=DELTA_DROP_RATE,
             max_delta=MAX_DELTA,
+            iterations_per_residue=ITERATIONS_PER_RESIDUE
         )
 
         gen_path = "seq_output/seq_generated.pdb"

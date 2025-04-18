@@ -34,7 +34,7 @@ from tools import *
 
 EPS = 1e-6  # avoids 0‑division
 MAX_DELTA = 0.10  # clip per‑step movement (Å)
-N_ITER = 200  # relax steps *after each point*
+N_ITER = 300  # relax steps *after each point*
 
 
 # ------------------------- hyper‑parameters ------------------------- #
