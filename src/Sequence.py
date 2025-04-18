@@ -23,17 +23,17 @@ from tools import *
 os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
 # ====== CONSTANTS ======
-SEQUENCE_SIZE = 160
+SEQUENCE_SIZE = 600
 
 N_SEQUENCES = 50
 # N_NEAREST_NEIGBORS = 30  # If using n nearest neighbors for adjustment
 # MAX_DISTANCE = 32  # If using neightbor within distance for adjustment
 # USE_NEIGHBORS = False  # If using n nearest neighbors for adjustment
 
-ITERATIONS = 10000
-ITERATIONS_PER_RESIDUE = 50
-TEMPERATURE = 0.1
-MAX_DELTA = 0.01
+ITERATIONS = 20000
+ITERATIONS_PER_RESIDUE = (ITERATIONS//SEQUENCE_SIZE)//2
+TEMPERATURE = 2
+MAX_DELTA = 0.05
 
 LABELS_PATH = "data/train_labels.csv"
 SEQUENCES_PATH = "data/train_sequences.csv"

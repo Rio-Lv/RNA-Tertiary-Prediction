@@ -139,11 +139,12 @@ def drop_random(deltas: Tensor, drop_rate: float) -> Tensor:
     deltas = deltas * mask
     return deltas
 
+
 def sub_next_coord(active_coord_matrix: Tensor) -> Tensor:
-    """ 
+    """
     Replace index 0 of this matrix with intelligent placement.
-    This is a placeholder function. 
-    for now.. 
+    This is a placeholder function.
+    for now..
     1. calculate vector coord index 2 - coord index 1
     2. subtract vector from index 1 to get index 0 coord
     - 0 to 1 to 2 should be a straight line
@@ -151,15 +152,16 @@ def sub_next_coord(active_coord_matrix: Tensor) -> Tensor:
     # r = 3.5 # distance between atoms
     r = 0.1
     # Calculate the vector from coord 1 to coord 2
-    vector = active_coord_matrix[2] - active_coord_matrix[-1]
+    vector = active_coord_matrix[2] - active_coord_matrix[1]
     dist = torch.norm(vector)
     uv = vector / (dist + EPS)  # unit vector
     # Subtract the vector from coord 1 to get coord 0
-    new_coord = active_coord_matrix[-1] - (uv * r)
+    new_coord = active_coord_matrix[0] - (uv * r)
     # Replace coord 0 with the new coord
     active_coord_matrix[0] = new_coord
-    
+
     return active_coord_matrix
+
 
 def adjust_coords(
     n_iter: int,
@@ -185,17 +187,15 @@ def adjust_coords(
     for curr in range(n_iter):
 
         max_index = min(curr // iterations_per_residue + 4, length)
-   
-        active_coord_matrix = coord_matrix[-max_index:].clone()  # rows only
+
+        active_coord_matrix = coord_matrix[:max_index].clone()  # rows only
         if len(active_coord_matrix) < length:
             active_coord_matrix = sub_next_coord(active_coord_matrix)
 
         print(f"Iteration {curr+1}/{n_iter}")
 
         # 1. Initiate Target Structure Via Distance Matrix
-        active_target_distance_matrix = target_matrix.clone()[
-            -max_index:, -max_index:
-        ]
+        active_target_distance_matrix = target_matrix.clone()[:max_index, :max_index]
         # 2. Apply Heat to the Structure.
         active_target_distance_matrix = apply_heat(
             active_target_distance_matrix, temperature
@@ -209,7 +209,7 @@ def adjust_coords(
         # 3.1. Drop some deltas to simulate imperfect information
         deltas = drop_random(deltas, drop_rate=delta_drop_rate)
         # 4. Add the deltas to the coordinates.
-        coord_matrix[-max_index:, -max_index:] += deltas
+        coord_matrix[:max_index, :max_index] += deltas
         # 5. Record the current state.
         recording.append(active_coord_matrix.clone())
 
