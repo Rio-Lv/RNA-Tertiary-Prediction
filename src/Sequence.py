@@ -24,6 +24,7 @@ from tools import (
     coords_list_to_matrix,
     coord_matrix_to_list,
     coord_to_distance_matrix,
+    adjust_coords,
 )
 
 # set here to cwd
@@ -114,67 +115,67 @@ class Sequence:
         coords = self.coords[start:end]
         return Sequence(seq_str=seq_str, seq_id=seq_id, coords=coords)
 
-    def apply_heat(self, target_distance_matrix: Tensor) -> Tensor:
-        """
-        Apply Gaussian noise to the distance matrix.
-        """
-        noise = torch.normal(0, TEMPERATURE, size=target_distance_matrix.shape)
-        # Add noise to the distance matrix
-        target_distance_matrix += noise
-        return target_distance_matrix
+    # def apply_heat(self, target_distance_matrix: Tensor, temperature: float) -> Tensor:
+    #     """
+    #     Apply Gaussian noise to the distance matrix.
+    #     """
+    #     noise = torch.normal(0, temperature, size=target_distance_matrix.shape)
+    #     # Add noise to the distance matrix
+    #     target_distance_matrix += noise
+    #     return target_distance_matrix
 
-    def drop(self, tensor: Tensor, drop_rate: float) -> Tensor:
-        """
-        Randomly drop elements from a tensor with a given probability.
-        """
-        mask = torch.rand(tensor.shape) > drop_rate
-        tensor = tensor * mask
-        return tensor
+    # def drop(self, tensor: Tensor, drop_rate: float) -> Tensor:
+    #     """
+    #     Randomly drop elements from a tensor with a given probability.
+    #     """
+    #     mask = torch.rand(tensor.shape) > drop_rate
+    #     tensor = tensor * mask
+    #     return tensor
 
-    def adjust_coords(self, n_iter: int) -> list[Vector]:
-        """
-        Make coords match the distance matrix via simulation.
-        1. Calculate distance matrix from current coordinates.
-        2. Calculate difference between the current and target distance matrices.
-        3. Create list of adjustments for each coordinate.
-        4. Calculate unit vectors from coord i to coord j.
-        Only contributions from pairs with distances <= MAX_DISTANCE are considered.
-        """
+    # def adjust_coords(self, n_iter: int) -> list[Vector]:
+    #     """
+    #     Make coords match the distance matrix via simulation.
+    #     1. Calculate distance matrix from current coordinates.
+    #     2. Calculate difference between the current and target distance matrices.
+    #     3. Create list of adjustments for each coordinate.
+    #     4. Calculate unit vectors from coord i to coord j.
+    #     Only contributions from pairs with distances <= MAX_DISTANCE are considered.
+    #     """
 
-        source_target_matrix = self.distance_matrix  # Contant throughout
-        coord_matrix = coords_list_to_matrix(self.coords)  # Changes every iteration
-        recording = []
+    #     source_target_matrix = self.distance_matrix  # Contant throughout
+    #     coord_matrix = coords_list_to_matrix(self.coords)  # Changes every iteration
+    #     recording = []
 
-        for curr in range(n_iter):
-            print(f"Iteration {curr+1}/{n_iter}")
+    #     for curr in range(n_iter):
+    #         print(f"Iteration {curr+1}/{n_iter}")
 
-            # 1. Initiate Target Structure Via Distance Matrix
-            target_distance_matrix = source_target_matrix.clone()
-            # 2. Apply Heat to the Structure.
-            target_distance_matrix = self.apply_heat(target_distance_matrix)
-            # 3. Compute Deltas Based on Target Distance Matrix
-            deltas = compute_delta_matrix(
-                coord_matrix=coord_matrix,
-                target_distance_matrix=target_distance_matrix,
-                eps=EPS,
-                max_delta=MAX_DELTA,
-            )
-            # 3.1. Drop some deltas to simulate imperfect information
-            deltas = self.drop(deltas, drop_rate=DELTA_DROP_RATE)
-            # 4. Add the deltas to the coordinates.
-            coord_matrix = coord_matrix + deltas
-            # 4.1. Correct Spine (if needed, significant slow down)
-            # coord_matrix = self.correct_spine_matrix(coord_matrix)
-            # 5. Record the current state.
-            recording.append(coord_matrix.clone())
+    #         # 1. Initiate Target Structure Via Distance Matrix
+    #         target_distance_matrix = source_target_matrix.clone()
+    #         # 2. Apply Heat to the Structure.
+    #         target_distance_matrix = self.apply_heat(
+    #             target_distance_matrix, temperature=TEMPERATURE
+    #         )
+    #         # 3. Compute Deltas Based on Target Distance Matrix
+    #         deltas = compute_delta_matrix(
+    #             coord_matrix=coord_matrix,
+    #             target_distance_matrix=target_distance_matrix,
+    #             eps=EPS,
+    #             max_delta=MAX_DELTA,
+    #         )
+    #         # 3.1. Drop some deltas to simulate imperfect information
+    #         deltas = self.drop(deltas, drop_rate=DELTA_DROP_RATE)
+    #         # 4. Add the deltas to the coordinates.
+    #         coord_matrix = coord_matrix + deltas
+    #         # 5. Record the current state.
+    #         recording.append(coord_matrix.clone())
 
-        # Update self.coords from the coord_matrix.
-        for i in range(len(self.coords)):
-            self.coords[i] = Vector(
-                coord_matrix[i][0], coord_matrix[i][1], coord_matrix[i][2]
-            )
+    #     # Update self.coords from the coord_matrix.
+    #     for i in range(len(self.coords)):
+    #         self.coords[i] = Vector(
+    #             coord_matrix[i][0], coord_matrix[i][1], coord_matrix[i][2]
+    #         )
 
-        return self.coords, recording
+    #     return self.coords, recording
 
     @staticmethod
     def to_pdb(coords: list[Vector], seq_str: str, save_path: str = None) -> str:
@@ -284,7 +285,8 @@ class Sequence:
         # Convert back to Vectors
         return [Vector(x, y, z) for x, y, z in final_pts]
 
-    def plot(self, coords_list: list[list[Vector]] = None, set_names: list[str] = None):
+    @staticmethod
+    def plot(coords_list: list[list[Vector]], set_names: list[str] = None):
         """
         Plot multiple sequences by marking each point and connecting each coordinate
         i to i+1 with a line. Each vector set in coords_list is plotted as a separate
@@ -298,11 +300,7 @@ class Sequence:
                                 set_names must match the number of coordinate sets.
         """
 
-        # If no coordinate sets are provided, use self.coords as a single vector set.
-        if coords_list is None:
-            coords_list = [self.coords]
-
-        coords_list = [self.align(coords, self.source_coords) for coords in coords_list]
+        coords_list = [Sequence.align(coords, coords_list[0]) for coords in coords_list]
 
         # If no set names are provided, use default names.
         if set_names is None:
@@ -391,27 +389,27 @@ class Sequence:
                 self.coords[i].z = random.uniform(-noise, noise)
             return self.coords
 
-    def _test_adjust_coords(self):
-        """
-        Try get structure from noise using distance matrix.
-        1. Recreate coordinates with random noise
-        2. Adjust coordinates to match distance matrix
-        3. Plot the original and adjusted coordinates.
-        """
-        # Deep copy the original coordinates.
-        original_coords = copy.deepcopy(self.coords)
-        noise = 10
-        self.coords = [
-            Vector(
-                random.uniform(-noise, noise),
-                random.uniform(-noise, noise),
-                random.uniform(-noise, noise),
-            )
-            for _ in self.coords
-        ]
-        self.adjust_coords(k=0.05, n_iter=100)
-        self.plot([original_coords, self.coords], ["OG", "Adjusted"])
-        return self.coords
+    # def _test_adjust_coords(self):
+    #     """
+    #     Try get structure from noise using distance matrix.
+    #     1. Recreate coordinates with random noise
+    #     2. Adjust coordinates to match distance matrix
+    #     3. Plot the original and adjusted coordinates.
+    #     """
+    #     # Deep copy the original coordinates.
+    #     original_coords = copy.deepcopy(self.coords)
+    #     noise = 10
+    #     self.coords = [
+    #         Vector(
+    #             random.uniform(-noise, noise),
+    #             random.uniform(-noise, noise),
+    #             random.uniform(-noise, noise),
+    #         )
+    #         for _ in self.coords
+    #     ]
+    #     self.adjust_coords(k=0.05, n_iter=100)
+    #     self.plot([original_coords, self.coords], ["OG", "Adjusted"])
+    #     return self.coords
 
     def _test_adjust_coords_video(
         self,
@@ -438,7 +436,15 @@ class Sequence:
         self._coords_to_noise()
 
         # Adjust the coordinates and record the intermediate states.
-        coords_adjusted, recording = self.adjust_coords(n_iter=iterations)
+        coords_adjusted, recording = adjust_coords(
+            n_iter=iterations,
+            coords=self.coords,
+            target_matrix=self.distance_matrix,
+            temperature=TEMPERATURE,
+            eps=EPS,
+            delta_drop_rate=DELTA_DROP_RATE,
+            max_delta=MAX_DELTA,
+        )
 
         gen_path = "seq_output/seq_generated.pdb"
         target_path = "seq_output/seq_target.pdb"

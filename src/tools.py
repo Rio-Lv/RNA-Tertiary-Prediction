@@ -24,6 +24,7 @@ class Vector:
     def __repr__(self):
         return f"Vector({self.x}, {self.y}, {self.z}) \n"
 
+
 # ====== FUNCTIONS ======
 def encode_str(seq_str: str):
     """
@@ -111,3 +112,71 @@ def compute_delta_matrix(
     deltas = deltas * scale
 
     return deltas
+
+
+def apply_heat(distance_matrix: Tensor, temperature: float) -> Tensor:
+    """
+    Apply Gaussian noise to the distance matrix.
+    """
+    noise = torch.normal(0, temperature, size=distance_matrix.shape)
+    # Add noise to the distance matrix
+    distance_matrix += noise
+    return distance_matrix
+
+
+def drop(tensor: Tensor, drop_rate: float) -> Tensor:
+    """
+    Randomly drop elements from a tensor with a given probability.
+    """
+    mask = torch.rand(tensor.shape) > drop_rate
+    tensor = tensor * mask
+    return tensor
+
+
+def adjust_coords(
+    n_iter: int,
+    coords: list[Vector],
+    target_matrix: Tensor,
+    temperature: float,
+    eps: float,
+    delta_drop_rate: float,
+    max_delta: float,
+) -> list[Vector]:
+    """
+    Make coords match the distance matrix via simulation.
+    1. Calculate distance matrix from current coordinates.
+    2. Calculate difference between the current and target distance matrices.
+    3. Create list of adjustments for each coordinate.
+    4. Calculate unit vectors from coord i to coord j.
+    Only contributions from pairs with distances <= MAX_DISTANCE are considered.
+    """
+    coord_matrix = coords_list_to_matrix(coords)  # Changes every iteration
+    recording = []
+
+    for curr in range(n_iter):
+        print(f"Iteration {curr+1}/{n_iter}")
+
+        # 1. Initiate Target Structure Via Distance Matrix
+        target_distance_matrix = target_matrix.clone()
+        # 2. Apply Heat to the Structure.
+        target_distance_matrix = apply_heat(target_distance_matrix, temperature)
+        # 3. Compute Deltas Based on Target Distance Matrix
+        deltas = compute_delta_matrix(
+            coord_matrix=coord_matrix,
+            target_distance_matrix=target_distance_matrix,
+            eps=eps,
+            max_delta=max_delta,
+        )
+        # 3.1. Drop some deltas to simulate imperfect information
+        deltas = drop(deltas, drop_rate=delta_drop_rate)
+        # 4. Add the deltas to the coordinates.
+        coord_matrix = coord_matrix + deltas
+        # 5. Record the current state.
+        recording.append(coord_matrix.clone())
+
+    # Update self.coords from the coord_matrix.
+    for i in range(len(coords)):
+        coords[i] = Vector(coord_matrix[i][0], coord_matrix[i][1], coord_matrix[i][2])
+
+    return coords, recording
+

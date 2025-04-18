@@ -28,6 +28,14 @@ from torch.optim import Adam
 from torch.utils.data import DataLoader, TensorDataset, random_split
 from Sequence import Vector
 
+from typing import List
+from collections import deque
+from tools import 
+EPS = 1e-6  # avoids 0‑division
+MAX_DELTA = 0.10  # clip per‑step movement (Å)
+N_ITER = 200  # relax steps *after each point*
+
+
 # ------------------------- hyper‑parameters ------------------------- #
 SPINE_TRAIN_EPOCHS = 5000
 SPINE_MODEL_LR = 0.001
@@ -60,7 +68,9 @@ if RESET_MODEL:
 
 # ----------------------------- helpers ----------------------------- #
 
-def plot_distance_heatmap(distance_matrix: torch.Tensor, title: str = "Distance matrix") -> None:
+def plot_distance_heatmap(
+    distance_matrix: torch.Tensor, title: str = "Distance matrix"
+) -> None:
     """Plot a square heat‑map for a (L×L) distance matrix."""
     plt.figure()
     plt.imshow(distance_matrix.cpu(), aspect="equal")
@@ -69,6 +79,26 @@ def plot_distance_heatmap(distance_matrix: torch.Tensor, title: str = "Distance 
     plt.xlabel("Residue index")
     plt.ylabel("Residue index")
     plt.tight_layout()
+    plt.show()
+
+
+def plot_coords(coords: List[Vector], title: str = "3D Coordinates") -> None:
+    """
+    Plot 3D coordinates in a scatter plot.
+    Plot lines between i and i+1 to show the backbone.
+    """
+    fig = plt.figure()
+    ax = fig.add_subplot(111, projection="3d")
+    x = [coord.x for coord in coords]
+    y = [coord.y for coord in coords]
+    z = [coord.z for coord in coords]
+
+    # plot lines between i and i+1
+    for i in range(len(coords) - 1):
+        ax.plot([x[i], x[i + 1]], [y[i], y[i + 1]], [z[i], z[i + 1]], color="b")
+
+    ax.scatter(x, y, z, c="r", marker="o")
+    ax.set_title(title)
     plt.show()
 
 
@@ -228,29 +258,30 @@ class SpineModel(nn.Module):
         plt.grid(True, alpha=0.3)
         plt.tight_layout()
         plt.show()
-        
-    @torch.no_grad()                     # no gradients anywhere in this function
+
+    @torch.no_grad()  # no gradients anywhere in this function
     def construct_distance_matrix(self, seq_str: str) -> torch.Tensor:
         L = len(seq_str)
-        W = SPINE_WINDOW_SIZE            # window length
-        device = next(self.parameters()).device   # handle cpu / cuda transparently
+        W = SPINE_WINDOW_SIZE  # window length
+        device = next(self.parameters()).device  # handle cpu / cuda transparently
 
         # running totals
-        sum_matrix  = torch.zeros((L, L), dtype=torch.float32, device=device)
-        cnt_matrix  = torch.zeros((L, L), dtype=torch.float32, device=device)
+        sum_matrix = torch.zeros((L, L), dtype=torch.float32, device=device)
+        cnt_matrix = torch.zeros((L, L), dtype=torch.float32, device=device)
 
         # helper to turn a character into one‑hot
         vocab = {"A": 0, "C": 1, "G": 2, "U": 3}
-        eye4  = torch.eye(4, dtype=torch.float32, device=device)
+        eye4 = torch.eye(4, dtype=torch.float32, device=device)
 
         for i in range(L - W + 1):
             # one‑hot encode window  (W, 4)
             idxs = [vocab.get(ch, -1) for ch in seq_str[i : i + W]]
-            enc  = torch.stack([(eye4[j] if j >= 0 else torch.zeros(4, device=device))
-                                for j in idxs])
+            enc = torch.stack(
+                [(eye4[j] if j >= 0 else torch.zeros(4, device=device)) for j in idxs]
+            )
 
             # (1, 4, W) → model → (W, W)
-            pred = self(enc.unsqueeze(0)).squeeze(0)      # (W, W)
+            pred = self(enc.unsqueeze(0)).squeeze(0)  # (W, W)
 
             # accumulate
             r = slice(i, i + W)
@@ -265,18 +296,24 @@ class SpineModel(nn.Module):
         # optional: print nicely
         torch.set_printoptions(precision=4, sci_mode=False)
 
-        return distance_matrix.cpu()      # return on CPU for convenience
-            
-    def construct_spine_coords(self, seq_str: str) -> list[Vector]:
-        """Construct a 3D spine from a sequence and its distance matrix."""
-        distance_matrix = self.construct_distance_matrix(seq_str)
-        n_iter = 200
-        max_delta = 0.1
+        return distance_matrix.cpu()  # return on CPU for convenience
+
+    # -------------------------------------------------------------------- #
+    #  main driver
+    # -------------------------------------------------------------------- #
+    
+    def construct_spine_coords(
+        self, seq_str: str, n_iter: int = N_ITER, max_delta: float = MAX_DELTA
+    ) -> List[Vector]:
+        source_distance_matrix = self.construct_distance_matrix(seq_str)
+        
+        
+        
 
 # --------------------------- script entry -------------------------- #
 
 if __name__ == "__main__":
-    
+
     # # 1. ===== TRAINING THE MODEL =====
     # torch.set_printoptions(precision=4, sci_mode=False)
 
@@ -319,9 +356,12 @@ if __name__ == "__main__":
     # print((out_after  - target).abs())
 
     # model.plot_history()
-    
+
     # 2. ===== USING THE MODEL =====
-    model = SpineModel()
+    spine_model = SpineModel()
     # create a distance matrix for a random sequence
-    distance_matrix = model.construct_distance_matrix("ACGUAAAA")
+    distance_matrix = spine_model.construct_distance_matrix("ACGUAAAA")
+    spine_coords = spine_model.construct_spine_coords("ACGUAAAAGUGUGUCCGCGCG")
+    # plot the coordinates
+    plot_coords(spine_coords, title="3D Coordinates")
     plot_distance_heatmap(distance_matrix)
