@@ -97,7 +97,7 @@ def coord_to_distance_matrix(coord_matrix: Tensor) -> Tensor:
 def compute_delta_matrix(
     coord_matrix: Tensor,
     target_distance_matrix: Tensor,
-    eps: float = 1e-6,
+    eps: float = 1e-8,
     max_delta: float = 0.01,
 ) -> Tensor:
     new_distance_matrix = coord_to_distance_matrix(coord_matrix)

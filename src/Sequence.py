@@ -30,15 +30,15 @@ from tools import (
 os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
 # ====== CONSTANTS ======
-SEQUENCE_SIZE = 300
+SEQUENCE_SIZE = 120
 
 N_SEQUENCES = 20
 # N_NEAREST_NEIGBORS = 30  # If using n nearest neighbors for adjustment
 # MAX_DISTANCE = 32  # If using neightbor within distance for adjustment
 # USE_NEIGHBORS = False  # If using n nearest neighbors for adjustment
 
-ITERATIONS = 3000
-TEMPERATURE = 1
+ITERATIONS = 5000
+TEMPERATURE = 0.5
 MAX_DELTA = 0.1
 LABELS_PATH = "data/train_labels.csv"
 SEQUENCES_PATH = "data/train_sequences.csv"
@@ -142,9 +142,7 @@ class Sequence:
         """
 
         source_target_matrix = self.distance_matrix  # Contant throughout
-        coord_matrix = coords_list_to_matrix(
-            self.coords
-        )  # Changes every iteration
+        coord_matrix = coords_list_to_matrix(self.coords)  # Changes every iteration
         recording = []
 
         for curr in range(n_iter):
@@ -155,7 +153,12 @@ class Sequence:
             # 2. Apply Heat to the Structure.
             target_distance_matrix = self.apply_heat(target_distance_matrix)
             # 3. Compute Deltas Based on Target Distance Matrix
-            deltas = compute_delta_matrix(coord_matrix, target_distance_matrix)
+            deltas = compute_delta_matrix(
+                coord_matrix=coord_matrix,
+                target_distance_matrix=target_distance_matrix,
+                eps=EPS,
+                max_delta=MAX_DELTA,
+            )
             # 3.1. Drop some deltas to simulate imperfect information
             deltas = self.drop(deltas, drop_rate=DELTA_DROP_RATE)
             # 4. Add the deltas to the coordinates.
