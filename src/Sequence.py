@@ -29,7 +29,7 @@ N_SEQUENCES = 200
 # MAX_DISTANCE = 32  # If using neightbor within distance for adjustment
 # USE_NEIGHBORS = False  # If using n nearest neighbors for adjustment
 
-ITERATIONS = 10000
+ITERATIONS = 100
 TEMPERATURE = 5
 MAX_DELTA = 0.1
 LABELS_PATH = "data/train_labels.csv"
@@ -812,7 +812,6 @@ class SequenceDataset:
         # using a windowed approach
         sequences = []
         n_sequences = self.n_sequences
-        n_sequences = min(len(sequences_df), n_sequences)
 
         for i in range(len(sequences_df)):
 
@@ -825,9 +824,8 @@ class SequenceDataset:
             if len(seq_str) < sequence_size:
                 continue
 
-            splits = len(seq_str) // sequence_size
-            for i in range(splits):
-                start_index = i * sequence_size
+            for i in range(len(seq_str) - sequence_size + 1):
+                start_index = i 
                 end_index = start_index + sequence_size
 
                 if len(sequences) >= n_sequences:
@@ -835,7 +833,7 @@ class SequenceDataset:
                     break
 
                 print(
-                    f"Processing sequence {len(sequences)}/{n_sequences} ({seq_id}) split {i+1}/{splits})"
+                    f"Processing sequence {len(sequences)}/{n_sequences} ({seq_id}) FROM INDEX {start_index} to {end_index})"
                 )
 
                 # seq labels is label df where seq_id is included ID col

@@ -1,209 +1,228 @@
-from torch import nn
-import torch
-from torch.utils.data import DataLoader, TensorDataset, random_split
-import matplotlib.pyplot as plt
-from torch.optim import Adam
-from Sequence import SequenceDataset
+# SPDX‑License‑Identifier: MIT
+"""Train or *continue* training a feed-forward network that maps an encoding
+(4 x sequence_size) to a distance matrix (sequence_size x sequence_size).
 
-SPINE_TRAIN_EPOCHS = 3500
-SPINE_MODEL_LR = 0.01
+Key behaviour
+-------------
+* Always **load** cached model weights _if they exist_, then keep training for
+  ``SPINE_TRAIN_EPOCHS`` more iterations.  Each run therefore fine-tunes the
+  model a bit further instead of skipping training.
+* Two independent toggles control cache deletion:
+
+    RESET_DATA  - delete the cached dataset and regenerate it next run
+    RESET_MODEL - delete the cached network weights and start from scratch
+
+Run directly::
+
+    python spine_model.py
+"""
+from __future__ import annotations
+
+import os, pathlib
+from typing import Tuple, Dict, Any
+
+import matplotlib.pyplot as plt
+import torch
+from torch import nn
+from torch.optim import Adam
+from torch.utils.data import DataLoader, TensorDataset, random_split
+
+# ------------------------- hyper‑parameters ------------------------- #
+SPINE_TRAIN_EPOCHS = 4_000
+SPINE_MODEL_LR = 0.001
 SPINE_TRAIN_BATCH_SIZE = 64**2
-SPINE_DATA_TRAIN_FRAC = 0.7
-SPINE_WINDOW_SIZE = 5
-SPINE_N_SEQUENCES = 2000
+SPINE_DATA_TRAIN_FRAC = 0.8
+SPINE_WINDOW_SIZE = 6
+SPINE_N_SEQUENCES = 10_000
+
+DATASET_PATH = pathlib.Path("data/spine_dataset.pt")
+MODEL_PATH = pathlib.Path("models/spine_model.pt")
+
+# flip either flag to *True* before running to wipe the corresponding cache
+RESET_DATA = False
+RESET_MODEL = False
+os.chdir(pathlib.Path(__file__).parent.resolve())
+# ------------------------ cache management ------------------------- #
+
+
+def _delete_path(p: pathlib.Path) -> None:
+    if p.is_file():
+        p.unlink()
+        print(f"=== Deleted {p} ===")
+
+
+# delete on demand
+if RESET_DATA:
+    _delete_path(DATASET_PATH)
+if RESET_MODEL:
+    _delete_path(MODEL_PATH)
+
+# ----------------------------- helpers ----------------------------- #
+
+
+def save_artifact(obj: Any, path: pathlib.Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    torch.save(obj, path)
+
+
+def load_artifact(path: pathlib.Path):
+    return torch.load(path, map_location="cpu") if path.is_file() else None
+
+
+# ------------------------------------------------------------------- #
+#  PyTorch ≥ 2.3 safe‑load note
+# ------------------------------------------------------------------- #
+# We cache the dataset as a *dict of tensors* to avoid unpickling globals;
+# see https://pytorch.org/docs/stable/serialization.html for details.
+# ------------------------------------------------------------------- #
+
+
+def _reconstruct_ds(cache: Dict[str, torch.Tensor]) -> TensorDataset:
+    return TensorDataset(cache["x"], cache["y"])
+
+
+# --------------------------- core model ---------------------------- #
+
 
 class SpineModel(nn.Module):
-    """
-    Takes in encoding shape (4, 5) and outputs distance matrix shape (5, 5)
-    eg. ----------------------------
-    ENCODING:
-    tensor([[0., 1., 0., 0.],
-            [0., 0., 0., 0.],
-            [0., 1., 0., 0.],
-            [1., 0., 0., 0.],
-            [1., 0., 0., 0.]])
-    ----------------------------
+    """Simple MLP predicting a distance matrix from a one-hot encoding."""
 
-    DISTANCE MATRIX:
-    tensor([[ 0.0000,  6.6771, 11.1824, 14.6738, 16.7382],
-            [ 6.6771,  0.0000,  6.8508, 12.7772, 16.7564],
-            [11.1824,  6.8508,  0.0000,  6.6834, 11.6652],
-            [14.6738, 12.7772,  6.6834,  0.0000,  5.5299],
-            [16.7382, 16.7564, 11.6652,  5.5299,  0.0000]])
-    """
-
-    def __init__(self, n_sequences: int, sequence_size: int, lr: float ):
+    def __init__(
+        self, sequence_size: int = SPINE_WINDOW_SIZE, lr: float = SPINE_MODEL_LR
+    ):
         super().__init__()
-        self.n_sequences = n_sequences
         self.sequence_size = sequence_size
 
-        self.train_loader, self.test_loader = self.generate_dataloader()
-        
         self.model = nn.Sequential(
             nn.Linear(4 * sequence_size, 128),
             nn.ReLU(),
             nn.Linear(128, 64),
-            nn.Dropout(0.9),
+            nn.Dropout(0.3),
             nn.ReLU(),
             nn.Linear(64, sequence_size * sequence_size),
         )
         self.loss_fn = nn.MSELoss()
         self.optimizer = Adam(self.model.parameters(), lr=lr)
-        self.train_loss_history = []
-        self.test_loss_history = []
-        
 
-    # ---------------------------------------------------------------------- #
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """
-        Forward pass through the model.
-        :param x: Input tensor of shape (batch_size, 4 * sequence_size)
-        :return: Output tensor of shape (batch_size, sequence_size * sequence_size)
-        """
-        x = x.view(x.size(0), -1)
-        x = self.model(x)
-        x = x.view(-1, self.sequence_size, self.sequence_size)
-        return x
-        
-        
-    def generate_dataloader(self):
-        """
-        Generate training data for the model.
-        1. Take a sequence of length 5
-        2. Predict Distance Matrix using Encoding
-        """
-        seq_dataset = SequenceDataset(
-            n_sequences=self.n_sequences, sequence_size=self.sequence_size
+        self.train_history: list[float] = []
+        self.val_history: list[float] = []
+
+        # Load weights if present so we *continue* training instead of starting over
+        state = load_artifact(MODEL_PATH)
+        if state is not None:
+            self.model.load_state_dict(state)
+            print(
+                f"=== Loaded model weights from {MODEL_PATH}; continuing training ==="
+            )
+
+    # .................................................................
+    def forward(self, x: torch.Tensor) -> torch.Tensor:  # type: ignore[override]
+        return self.model(x.view(x.size(0), -1)).view(
+            -1, self.sequence_size, self.sequence_size
         )
-        
-        # if file does not exis
 
-        sequences = seq_dataset.source_sequences
-        [print(seq) for seq in sequences]
+    # ---------------------------- data ------------------------------ #
 
-        input_list = []
-        target_list = []
-        for seq in sequences:
-            input_list.append(seq.encoding)  # shape (4, 5)
-            target_list.append(seq.distance_matrix)  # shape (5, 5)
-            
-        # Convert to Dataset
-        input_tensor = torch.stack(input_list)
-        target_tensor = torch.stack(target_list)
-        # build a mask that is True for rows that are 100 % finite
-        mask_in  = torch.isfinite(input_tensor.reshape(input_tensor.size(0), -1)).all(1)
-        mask_tgt = torch.isfinite(target_tensor.reshape(target_tensor.size(0), -1)).all(1)
-        
-        keep = mask_in & mask_tgt            # keep only samples that are clean
+    @staticmethod
+    def _build_tensor_dataset(n_sequences: int, sequence_size: int) -> TensorDataset:
+        from Sequence import SequenceDataset  # local import
 
-        input_tensor  = input_tensor[keep]
-        target_tensor = target_tensor[keep]
-        assert not torch.isnan(input_tensor).any(),  "NaN in inputs"
-        assert not torch.isinf(input_tensor).any(),  "Inf in inputs"
-        assert not torch.isnan(target_tensor).any(), "NaN in targets"
-        assert not torch.isinf(target_tensor).any(), "Inf in targets"
-        dataset = TensorDataset(input_tensor, target_tensor)
+        seq_ds = SequenceDataset(n_sequences=n_sequences, sequence_size=sequence_size)
+        xs, ys = zip(
+            *((s.encoding, s.distance_matrix) for s in seq_ds.source_sequences)
+        )
+        x = torch.stack(xs).float()
+        y = torch.stack(ys).float()
+        mask = torch.isfinite(x.view(x.size(0), -1)).all(1) & torch.isfinite(
+            y.view(y.size(0), -1)
+        ).all(1)
+        return TensorDataset(x[mask], y[mask])
 
-        n_total      = len(dataset)
-        n_train      = int(SPINE_DATA_TRAIN_FRAC * n_total)
-        n_test       = n_total - n_train
+    def get_dataloaders(
+        self, batch_size: int = SPINE_TRAIN_BATCH_SIZE
+    ) -> Tuple[DataLoader, DataLoader]:
+        cache = load_artifact(DATASET_PATH)
+        if cache is None:
+            print("=== Generating dataset ===")
+            ds = self._build_tensor_dataset(SPINE_N_SEQUENCES, self.sequence_size)
+            save_artifact({"x": ds.tensors[0], "y": ds.tensors[1]}, DATASET_PATH)
+            print(f"=== Saved dataset to {DATASET_PATH} ===")
+        else:
+            print(f"=== Loaded dataset from {DATASET_PATH} ===")
+            ds = _reconstruct_ds(cache)
 
-        # random_split keeps the two subsets "views" over the *same* underlying data
-        g = torch.Generator().manual_seed(42)
-        train_ds, test_ds = random_split(dataset, [n_train, n_test], generator=g)
+        n_train = int(SPINE_DATA_TRAIN_FRAC * len(ds))
+        n_val = len(ds) - n_train
+        train_ds, val_ds = random_split(
+            ds, [n_train, n_val], generator=torch.Generator().manual_seed(42)
+        )
+        return (
+            DataLoader(train_ds, batch_size=batch_size, shuffle=True),
+            DataLoader(val_ds, batch_size=batch_size, shuffle=False),
+        )
 
-        train_loader = DataLoader(train_ds,
-                                batch_size=SPINE_TRAIN_BATCH_SIZE,
-                                shuffle=True)   # shuffle ONLY the train set
-        test_loader  = DataLoader(test_ds,
-                                batch_size=SPINE_TRAIN_BATCH_SIZE,
-                                shuffle=False)  # deterministic order
+    # --------------------------- train ------------------------------ #
 
-        return train_loader, test_loader
-    
-    def train_model(self):
-        for epoch in range(SPINE_TRAIN_EPOCHS):
-
-            # ----- TRAIN --------------------------------------------------
+    def fit(
+        self,
+        train_loader: DataLoader,
+        val_loader: DataLoader,
+        epochs: int = SPINE_TRAIN_EPOCHS,
+    ):
+        for ep in range(epochs):
+            # --- train ---
             self.train()
-            running, n = 0.0, 0
-            for x, y in self.train_loader:
+            tr_loss, tr_n = 0.0, 0
+            for x, y in train_loader:
                 self.optimizer.zero_grad()
-                out   = self(x)
-                loss  = self.loss_fn(out, y)
+                loss = self.loss_fn(self(x), y)
                 loss.backward()
                 self.optimizer.step()
+                tr_loss += loss.item() * x.size(0)
+                tr_n += x.size(0)
+            self.train_history.append(tr_loss / tr_n)
 
-                running += loss.item() * x.size(0)
-                n       += x.size(0)
-
-            train_mse = running / n
-            self.train_loss_history.append(train_mse)
-
-            # ----- VALIDATE ----------------------------------------------
+            # --- val ---
             self.eval()
+            v_loss, v_n = 0.0, 0
             with torch.no_grad():
-                running, n = 0.0, 0
-                for x, y in self.test_loader:
-                    out   = self(x)
-                    loss  = self.loss_fn(out, y)
-                    running += loss.item() * x.size(0)
-                    n       += x.size(0)
+                for x, y in val_loader:
+                    v_loss += self.loss_fn(self(x), y).item() * x.size(0)
+                    v_n += x.size(0)
+            self.val_history.append(v_loss / v_n)
 
-            test_mse = running / n
-            self.test_loss_history.append(test_mse)
+            if ep % 100 == 0:
+                print(
+                    f"epoch {ep:>5}/{epochs}  train={self.train_history[-1]:.4f}  val={self.val_history[-1]:.4f}"
+                )
 
-            # ----- logging -----------------------------------------------
-            if epoch % 10 == 0:
-                print(f"epoch {epoch:>5}/{SPINE_TRAIN_EPOCHS}"
-                    f"  train-MSE={train_mse:.4f}"
-                    f"  val-MSE={test_mse:.4f}")
- 
-    def plot_loss(self):
+        save_artifact(self.model.state_dict(), MODEL_PATH)
+        print(f"=== Saved model weights to {MODEL_PATH} ===")
+
+    # --------------------------- utils ----------------------------- #
+
+    def plot_history(self):
         plt.figure()
-        plt.plot(self.train_loss_history, label="train")
-        plt.plot(self.test_loss_history,   label="validation")
+        plt.plot(self.train_history, label="train")
+        plt.plot(self.val_history, label="validation")
         plt.xlabel("Epoch")
-        plt.ylabel("MSE Loss")
-        plt.title("Training vs. validation loss")
-        plt.ylim(0, 5)                         # keep if you find it helpful
+        plt.ylabel("MSE loss")
+        plt.ylim(0, 10)
         plt.legend()
         plt.grid(True, alpha=0.3)
         plt.tight_layout()
         plt.show()
 
 
+# --------------------------- script entry -------------------------- #
+
 if __name__ == "__main__":
 
-# ================ Test 3 Next Residue Model ==============
-
-    spine_model = SpineModel(n_sequences=SPINE_N_SEQUENCES, sequence_size=SPINE_WINDOW_SIZE, lr=SPINE_MODEL_LR)
-    # Generate training data
-    spine_train_loader = spine_model.train_loader
-    spine_test_loader  = spine_model.test_loader
-    
     torch.set_printoptions(precision=4, sci_mode=False)
 
-    # ------------------------------------------------------------------
-    test_inputs, test_targets = next(iter(spine_test_loader))
+    model = SpineModel()
+    train_loader, val_loader = model.get_dataloaders()
 
-    # ------------------------------------------------------------------
-    with torch.no_grad():
-        output0 = spine_model(test_inputs)
-    # ------------------------------------------------------------------
-    spine_model.train_model()
-    # ------------------------------------------------------------------
-    print(">>> BEFORE training")
-    print("MSE =", torch.nn.functional.mse_loss(output0, test_targets).item())
-    print(output0[0])
-    
-    print("\n>>> AFTER training")
-    spine_model.eval()              # turn off dropout / batch‑norm if you add them later
-    with torch.no_grad():           # no need to track gradients during evaluation
-        output1 = spine_model(test_inputs)
-    print("MSE =", torch.nn.functional.mse_loss(output1, test_targets).item())
-    print(output1[0])
-
-    print("\nTarget")
-    print(test_targets)
-    spine_model.plot_loss()
+    # Always train (continue training if weights were loaded)
+    model.fit(train_loader, val_loader)
+    model.plot_history()
