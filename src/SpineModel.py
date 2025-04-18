@@ -26,6 +26,7 @@ import torch
 from torch import nn
 from torch.optim import Adam
 from torch.utils.data import DataLoader, TensorDataset, random_split
+from Sequence import Vector
 
 # ------------------------- hyper‑parameters ------------------------- #
 SPINE_TRAIN_EPOCHS = 5000
@@ -40,7 +41,7 @@ MODEL_PATH = pathlib.Path("models/spine_model.pt")
 
 # flip either flag to *True* before running to wipe the corresponding cache
 RESET_DATA = False
-RESET_MODEL = True
+RESET_MODEL = False
 os.chdir(pathlib.Path(__file__).parent.resolve())
 # ------------------------ cache management ------------------------- #
 
@@ -58,6 +59,17 @@ if RESET_MODEL:
     _delete_path(MODEL_PATH)
 
 # ----------------------------- helpers ----------------------------- #
+
+def plot_distance_heatmap(distance_matrix: torch.Tensor, title: str = "Distance matrix") -> None:
+    """Plot a square heat‑map for a (L×L) distance matrix."""
+    plt.figure()
+    plt.imshow(distance_matrix.cpu(), aspect="equal")
+    plt.colorbar(label="Distance")
+    plt.title(title)
+    plt.xlabel("Residue index")
+    plt.ylabel("Residue index")
+    plt.tight_layout()
+    plt.show()
 
 
 def save_artifact(obj: Any, path: pathlib.Path) -> None:
@@ -216,49 +228,100 @@ class SpineModel(nn.Module):
         plt.grid(True, alpha=0.3)
         plt.tight_layout()
         plt.show()
+        
+    @torch.no_grad()                     # no gradients anywhere in this function
+    def construct_distance_matrix(self, seq_str: str) -> torch.Tensor:
+        L = len(seq_str)
+        W = SPINE_WINDOW_SIZE            # window length
+        device = next(self.parameters()).device   # handle cpu / cuda transparently
 
+        # running totals
+        sum_matrix  = torch.zeros((L, L), dtype=torch.float32, device=device)
+        cnt_matrix  = torch.zeros((L, L), dtype=torch.float32, device=device)
+
+        # helper to turn a character into one‑hot
+        vocab = {"A": 0, "C": 1, "G": 2, "U": 3}
+        eye4  = torch.eye(4, dtype=torch.float32, device=device)
+
+        for i in range(L - W + 1):
+            # one‑hot encode window  (W, 4)
+            idxs = [vocab.get(ch, -1) for ch in seq_str[i : i + W]]
+            enc  = torch.stack([(eye4[j] if j >= 0 else torch.zeros(4, device=device))
+                                for j in idxs])
+
+            # (1, 4, W) → model → (W, W)
+            pred = self(enc.unsqueeze(0)).squeeze(0)      # (W, W)
+
+            # accumulate
+            r = slice(i, i + W)
+            sum_matrix[r, r] += pred
+            cnt_matrix[r, r] += 1.0
+
+        # avoid division by zero (off‑diagonal never touched for extremely short seqs)
+        mask = cnt_matrix > 0
+        distance_matrix = torch.zeros_like(sum_matrix)
+        distance_matrix[mask] = sum_matrix[mask] / cnt_matrix[mask]
+
+        # optional: print nicely
+        torch.set_printoptions(precision=4, sci_mode=False)
+
+        return distance_matrix.cpu()      # return on CPU for convenience
+            
+    def construct_spine_coords(self, seq_str: str) -> list[Vector]:
+        """Construct a 3D spine from a sequence and its distance matrix."""
+        distance_matrix = self.construct_distance_matrix(seq_str)
+        n_iter = 200
+        max_delta = 0.1
 
 # --------------------------- script entry -------------------------- #
 
 if __name__ == "__main__":
-    torch.set_printoptions(precision=4, sci_mode=False)
+    
+    # # 1. ===== TRAINING THE MODEL =====
+    # torch.set_printoptions(precision=4, sci_mode=False)
 
+    # model = SpineModel()
+    # tr_loader, vl_loader = model.get_dataloaders()
+
+    # # ── grab one validation sample ──────────────────────────────────
+    # sample_x, target = vl_loader.dataset[0]          # (4, L) , (L, L)
+    # sample_x = sample_x.unsqueeze(0)                 # -> (1, 4, L)
+
+    # with torch.no_grad():
+    #     out_before = model(sample_x).squeeze(0)      # (L, L)
+    #     mse_before = nn.functional.mse_loss(out_before, target).item()
+
+    # # ── train (continues from cached weights if any) ────────────────
+    # model.fit(tr_loader, vl_loader)
+
+    # with torch.no_grad():
+    #     out_after  = model(sample_x).squeeze(0)
+    #     mse_after  = nn.functional.mse_loss(out_after, target).item()
+
+    # # ── nicely formatted report ─────────────────────────────────────
+    # print(f"\nInput encoding shape : {sample_x.shape[1:]}")   # (4, L)
+    # print(f"Target distance shape : {target.shape}")          # (L, L)
+
+    # print(f"\n>>> TARGET")
+    # print(target)
+
+    # print(f"\n>>> BEFORE training — MSE vs. target = {mse_before:.4f}")
+    # print(out_before)
+
+    # print(f"\n>>> AFTER  training — MSE vs. target = {mse_after:.4f}")
+    # print(out_after)
+
+    # # absolute error matrices (optional, comment out if too verbose)
+    # print("\n|before - target| :")
+    # print((out_before - target).abs())
+
+    # print("\n|after - target|  :")
+    # print((out_after  - target).abs())
+
+    # model.plot_history()
+    
+    # 2. ===== USING THE MODEL =====
     model = SpineModel()
-    tr_loader, vl_loader = model.get_dataloaders()
-
-    # ── grab one validation sample ──────────────────────────────────
-    sample_x, target = vl_loader.dataset[0]          # (4, L) , (L, L)
-    sample_x = sample_x.unsqueeze(0)                 # -> (1, 4, L)
-
-    with torch.no_grad():
-        out_before = model(sample_x).squeeze(0)      # (L, L)
-        mse_before = nn.functional.mse_loss(out_before, target).item()
-
-    # ── train (continues from cached weights if any) ────────────────
-    model.fit(tr_loader, vl_loader)
-
-    with torch.no_grad():
-        out_after  = model(sample_x).squeeze(0)
-        mse_after  = nn.functional.mse_loss(out_after, target).item()
-
-    # ── nicely formatted report ─────────────────────────────────────
-    print(f"\nInput encoding shape : {sample_x.shape[1:]}")   # (4, L)
-    print(f"Target distance shape : {target.shape}")          # (L, L)
-
-    print(f"\n>>> TARGET")
-    print(target)
-
-    print(f"\n>>> BEFORE training — MSE vs. target = {mse_before:.4f}")
-    print(out_before)
-
-    print(f"\n>>> AFTER  training — MSE vs. target = {mse_after:.4f}")
-    print(out_after)
-
-    # absolute error matrices (optional, comment out if too verbose)
-    print("\n|before - target| :")
-    print((out_before - target).abs())
-
-    print("\n|after - target|  :")
-    print((out_after  - target).abs())
-
-    model.plot_history()
+    # create a distance matrix for a random sequence
+    distance_matrix = model.construct_distance_matrix("ACGUAAAA")
+    plot_distance_heatmap(distance_matrix)

@@ -13,24 +13,32 @@ import math
 from scipy.spatial.transform import Rotation as R
 import numpy as np
 import time
-from tools import compute_similarity
+from _deprecated_tools import compute_similarity
 from torch.utils.data import DataLoader, TensorDataset, random_split
 
 from torch.optim import Adam
+from tools import (
+    Vector,
+    compute_delta_matrix,
+    encode_str,
+    coords_list_to_matrix,
+    coord_matrix_to_list,
+    coord_to_distance_matrix,
+)
 
 # set here to cwd
 os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
 # ====== CONSTANTS ======
-SEQUENCE_SIZE = 60
+SEQUENCE_SIZE = 300
 
-N_SEQUENCES = 200
+N_SEQUENCES = 20
 # N_NEAREST_NEIGBORS = 30  # If using n nearest neighbors for adjustment
 # MAX_DISTANCE = 32  # If using neightbor within distance for adjustment
 # USE_NEIGHBORS = False  # If using n nearest neighbors for adjustment
 
-ITERATIONS = 100
-TEMPERATURE = 5
+ITERATIONS = 3000
+TEMPERATURE = 1
 MAX_DELTA = 0.1
 LABELS_PATH = "data/train_labels.csv"
 SEQUENCES_PATH = "data/train_sequences.csv"
@@ -46,29 +54,6 @@ DIR_BIAS_X = 1  # Bias for the x direction in random walk
 EPS = 1e-8  # Small value to avoid division by zero
 DELTA_DROP_RATE = 0.5  # Rate at which deltas are dropped
 # NOISY_SOURCE_MATRIX = True
-
-
-# ====== TYPES ======
-class Vector:
-    x: float
-    y: float
-    z: float
-
-    def __init__(self, x: float, y: float, z: float):
-        self.x = x
-        self.y = y
-        self.z = z
-
-    def copy(self):
-        return (Vector(self.x, self.y, self.z),)
-
-    def add(self, vector: "Vector"):
-        self.x += vector.x
-        self.y += vector.y
-        self.z += vector.z
-
-    def __repr__(self):
-        return f"Vector({self.x}, {self.y}, {self.z}) \n"
 
 
 # ====== SEQUENCE ======
@@ -88,13 +73,13 @@ class Sequence:
     def __init__(self, seq_str: str, seq_id: str = None, coords: list[Vector] = None):
         self.seq_str = seq_str
         self.seq_id = seq_id
-        self.encoding = self.encode_str(seq_str)
+        self.encoding = encode_str(seq_str)
         self.coords = (
             copy.deepcopy(coords) if coords else self._coords_to_noise(walk=True)
         )
         self.source_coords = copy.deepcopy(self.coords)
-        self.coord_matrix = self.coords_list_to_matrix(self.coords)
-        self.distance_matrix = self.coord_to_distance_matrix(self.coord_matrix)
+        self.coord_matrix = coords_list_to_matrix(self.coords)
+        self.distance_matrix = coord_to_distance_matrix(self.coord_matrix)
 
     def __repr__(self):
         # Print Seq String but if longer than 50 chars use ellipsis
@@ -129,185 +114,6 @@ class Sequence:
         coords = self.coords[start:end]
         return Sequence(seq_str=seq_str, seq_id=seq_id, coords=coords)
 
-    @staticmethod
-    def encode_str(seq_str: str):
-        """
-        Convert a string to hot-encoded tensor.
-        "A" -> [1, 0, 0, 0]
-        "C" -> [0, 1, 0, 0]
-        "G" -> [0, 0, 1, 0]
-        "T" -> [0, 0, 0, 1]
-        "N" -> [0, 0, 0, 0]        Tensor([
-            [1, 0, 0, 0],
-            [0, 1, 0, 0],
-            [0, 0, 1, 0],
-            [0, 0, 0, 1]
-        ])
-        """
-        encoding = {
-            "A": [1, 0, 0, 0],
-            "C": [0, 1, 0, 0],
-            "G": [0, 0, 1, 0],
-            "T": [0, 0, 0, 1],
-        }
-        tensor = []
-        for char in seq_str:
-            if char not in encoding:
-                tensor.append([0, 0, 0, 0])
-                continue
-            tensor.append(encoding[char])
-        assert len(tensor) == len(
-            seq_str
-        ), "Length of tensor does not match length of string"
-        assert len(tensor[0]) == 4, "Length of tensor does not match length of encoding"
-        return Tensor(tensor)
-
-    @staticmethod
-    def coords_list_to_matrix(coords: list[Vector]) -> Tensor:
-        """
-        Create a tensor from a list of coordinates.
-        :param coords: List of coordinates
-        :return: Tensor of coordinates
-        """
-        coord_matrix = []
-        for coord in coords:
-            coord_matrix.append([coord.x, coord.y, coord.z])
-        return Tensor(coord_matrix)
-
-    @staticmethod
-    def coord_matrix_to_list(coord_matrix: Tensor) -> list[Vector]:
-        """
-        Create a list of coordinates from a tensor.
-        :param coord_matrix: Tensor of coordinates
-        :return: List of coordinates
-        """
-        coords = []
-        for coord in coord_matrix:
-            coords.append(Vector(coord[0], coord[1], coord[2]))
-        return coords
-
-    @staticmethod
-    def compute_neighbors_list(
-        coord_list: list[Vector], n_neighbors: int
-    ) -> list[list[int]]:
-        """
-        Compute the n nearest neighbors for each coordinate.
-
-        For each coordinate in coord_list, determine the indices of the n closest points.
-        The output is a matrix of size (len(coord_list), n_neighbors) that stores the indices
-        of the nearest neighbors for each coordinate.
-
-        Parameters:
-        coord_list (list[Vector]): List of coordinate vectors.
-        n_neighbors (int): Number of nearest neighbors to find for each coordinate.
-
-        Returns:
-        Tensor: A 2D tensor (or list of lists) of nearest neighbor indices.
-        """
-        # First, compute the full distance matrix.
-        distance_matrix = Sequence.compute_distance_matrix(coord_list)
-
-        neighbors = []  # This will be a list of lists holding indices.
-        n_points = len(coord_list)
-
-        # For each point, find the indices corresponding to the n smallest distances
-        # (ignoring the diagonal entry which is zero).
-        for i in range(n_points):
-            # Create a list of indices with their associated distance,
-            # skipping the self-distance at index i.
-            distances = [(j, distance_matrix[i][j]) for j in range(n_points) if j != i]
-            # Sort the list by distance.
-            distances.sort(key=lambda tup: tup[1])
-            # Extract the indices of the n closest points.
-            nearest_indices = [idx for idx, dist in distances[:n_neighbors]]
-            neighbors.append(nearest_indices)
-
-        return neighbors
-
-    @staticmethod
-    def correct_spine_matrix(coord_matrix: Tensor) -> Tensor:
-        """
-        Corrects a coordinate matrix so that the distance between consecutive spine points
-        does not exceed MAX_SPINE_SPACE. For any pair (i, i+1) with distance > MAX_SPINE_SPACE:
-        - Calculate the unit vector from point i to point i+1.
-        - Calculate the correction (MAX_SPINE_SPACE - distance) (a negative number).
-        - Apply this correction to all subsequent points (i+1 onward) along that unit vector.
-
-        Args:
-            coord_matrix (Tensor): A tensor of shape [N, 3] containing the coordinates.
-
-        Returns:
-            Tensor: The corrected coordinate matrix.
-        """
-        num_points = coord_matrix.shape[0]
-        for i in range(num_points - 1):
-            # Calculate the difference vector between consecutive points.
-            diff = coord_matrix[i + 1] - coord_matrix[i]
-            # Compute the Euclidean distance between points i and i+1.
-            dist = torch.norm(diff, p=2)
-            # If the distance exceeds the allowed max, compute and apply a correction.
-            if dist > MAX_SPINE_SPACE:
-                # Compute the unit vector (adding a small epsilon to avoid division by zero).
-                unit = diff / (dist + 1e-8)
-                # The correction needed (this will be negative if the distance is too large).
-                correction = unit * (MAX_SPINE_SPACE - dist)
-                # Update all subsequent coordinates by adding the same correction.
-                coord_matrix[i + 1 :] = coord_matrix[i + 1 :] + correction
-        return coord_matrix
-
-    @staticmethod
-    def gravitate_centroid_matrix(coord_matrix: Tensor) -> Tensor:
-        """
-        Move all coordinates slightly towards the centroid.
-        1. Calculate centroid.
-        2. Calculate the difference vector.
-        3. Calculate unit vector towards centroid.
-        4. Move each coord by the difference vector.
-
-        Args:
-            coord_matrix (Tensor): A tensor of shape [N, 3] containing the coordinates.
-
-        Returns:
-            Tensor: The updated coordinate matrix.
-        """
-        centroid = torch.mean(coord_matrix, dim=0)
-        # Calculate the difference vector
-        diff_vector = centroid - coord_matrix
-        # Normalize to get unit vectors
-        dist = torch.norm(diff_vector, dim=1, keepdim=True)
-        unit_vectors = diff_vector / (dist + 1e-8)
-        # Move each coordinate slightly towards the centroid
-        coord_matrix += unit_vectors * GRAVITY
-        return coord_matrix
-
-    @staticmethod
-    def coord_to_distance_matrix(coord_matrix: Tensor) -> Tensor:
-        """
-        Compute the distance matrix from a coordinate matrix.
-        :param coord_matrix: Tensor of shape [N, 3] containing the coordinates.
-        :return: Tensor of shape [N, N] representing the distance matrix.
-        """
-        # Compute pairwise distances using broadcasting
-        dist = torch.norm(coord_matrix.unsqueeze(0) - coord_matrix.unsqueeze(1), dim=2)
-
-        return dist
-
-    @staticmethod
-    def compute_delta_matrix(
-        coord_matrix: Tensor, target_distance_matrix: Tensor
-    ) -> Tensor:
-        new_distance_matrix = Sequence.coord_to_distance_matrix(coord_matrix)
-        dist_diff = new_distance_matrix - target_distance_matrix
-        d_coords = coord_matrix.unsqueeze(0) - coord_matrix.unsqueeze(1)
-
-        u_vecs = d_coords / (new_distance_matrix.unsqueeze(2) + EPS)
-        deltas = (u_vecs * dist_diff.unsqueeze(2)).sum(dim=1)
-        mags = torch.norm(deltas, dim=1, keepdim=True)
-        scale = MAX_DELTA / (mags + EPS)
-        deltas = deltas * scale
-
-        return deltas
-
     def apply_heat(self, target_distance_matrix: Tensor) -> Tensor:
         """
         Apply Gaussian noise to the distance matrix.
@@ -336,7 +142,7 @@ class Sequence:
         """
 
         source_target_matrix = self.distance_matrix  # Contant throughout
-        coord_matrix = self.coords_list_to_matrix(
+        coord_matrix = coords_list_to_matrix(
             self.coords
         )  # Changes every iteration
         recording = []
@@ -349,7 +155,7 @@ class Sequence:
             # 2. Apply Heat to the Structure.
             target_distance_matrix = self.apply_heat(target_distance_matrix)
             # 3. Compute Deltas Based on Target Distance Matrix
-            deltas = self.compute_delta_matrix(coord_matrix, target_distance_matrix)
+            deltas = compute_delta_matrix(coord_matrix, target_distance_matrix)
             # 3.1. Drop some deltas to simulate imperfect information
             deltas = self.drop(deltas, drop_rate=DELTA_DROP_RATE)
             # 4. Add the deltas to the coordinates.
@@ -825,7 +631,7 @@ class SequenceDataset:
                 continue
 
             for i in range(len(seq_str) - sequence_size + 1):
-                start_index = i 
+                start_index = i
                 end_index = start_index + sequence_size
 
                 if len(sequences) >= n_sequences:
@@ -846,13 +652,13 @@ class SequenceDataset:
                 coords = []
                 for x, y, z in zip(x_1, y_1, z_1):
                     coords.append(Vector(x, y, z))
-                    
+
                 seq = Sequence(
                     seq_str=seq_str[start_index:end_index],
                     seq_id=f"{seq_id} split_{i+1}",
                     coords=coords[start_index:end_index],
                 )
-                
+
                 sequences.append(seq)
         self.source_sequences = sequences
         return sequences
@@ -944,5 +750,3 @@ if __name__ == "__main__":
     seq._test_adjust_coords_video(iterations=ITERATIONS, speed=VIDEO_SPEED)
 
     # Sequence.compute_similarity_us_align()
-
-    
