@@ -129,14 +129,14 @@ def apply_heat(distance_matrix: Tensor, temperature: float) -> Tensor:
     return distance_matrix
 
 
-def drop(tensor: Tensor, drop_rate: float) -> Tensor:
+def drop_random(deltas: Tensor, drop_rate: float) -> Tensor:
     """
+    To be used on deltas which is of shape [N, N, 3]. 
     Randomly drop elements from a tensor with a given probability.
     """
-    mask = torch.rand(tensor.shape) > drop_rate
-    tensor = tensor * mask
-    return tensor
-
+    mask = torch.rand(deltas.shape) > drop_rate
+    deltas = deltas * mask
+    return deltas
 
 def adjust_coords(
     n_iter: int,
@@ -158,24 +158,27 @@ def adjust_coords(
     recording = []
 
     for curr in range(n_iter):
+        max_index = min(curr//10 + 5, len(coords))
+        active_coord_matrix = coord_matrix.clone()[:max_index,:max_index]
+        
         print(f"Iteration {curr+1}/{n_iter}")
 
         # 1. Initiate Target Structure Via Distance Matrix
-        target_distance_matrix = target_matrix.clone()
+        active_target_distance_matrix = target_matrix.clone()[:max_index,:max_index]
         # 2. Apply Heat to the Structure.
-        target_distance_matrix = apply_heat(target_distance_matrix, temperature)
+        active_target_distance_matrix = apply_heat(active_target_distance_matrix, temperature)
         # 3. Compute Deltas Based on Target Distance Matrix
         deltas = compute_delta_matrix(
-            coord_matrix=coord_matrix,
-            target_distance_matrix=target_distance_matrix,
+            coord_matrix=active_coord_matrix,
+            target_distance_matrix=active_target_distance_matrix,
             max_delta=max_delta,
         )
         # 3.1. Drop some deltas to simulate imperfect information
-        deltas = drop(deltas, drop_rate=delta_drop_rate)
+        deltas = drop_random(deltas, drop_rate=delta_drop_rate)
         # 4. Add the deltas to the coordinates.
-        coord_matrix = coord_matrix + deltas
+        coord_matrix[:max_index,:max_index] += deltas
         # 5. Record the current state.
-        recording.append(coord_matrix.clone())
+        recording.append(active_coord_matrix.clone())
 
     # Update self.coords from the coord_matrix.
     for i in range(len(coords)):

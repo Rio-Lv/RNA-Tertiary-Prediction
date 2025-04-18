@@ -29,8 +29,9 @@ from torch.utils.data import DataLoader, TensorDataset, random_split
 from Sequence import Vector
 
 from typing import List
-from collections import deque
-from tools import 
+from tools import *
+
+
 EPS = 1e-6  # avoids 0‑division
 MAX_DELTA = 0.10  # clip per‑step movement (Å)
 N_ITER = 200  # relax steps *after each point*
@@ -305,9 +306,12 @@ class SpineModel(nn.Module):
     def construct_spine_coords(
         self, seq_str: str, n_iter: int = N_ITER, max_delta: float = MAX_DELTA
     ) -> List[Vector]:
-        source_distance_matrix = self.construct_distance_matrix(seq_str)
+        distance_matrix = self.construct_distance_matrix(seq_str)
         
-        
+        for iter in range(n_iter):
+            # initialize coordinates
+            coords = [Vector(0, 0, 0) for _ in range(len(seq_str))]
+            coords[0] = Vector(0, 0, 0)
         
 
 # --------------------------- script entry -------------------------- #

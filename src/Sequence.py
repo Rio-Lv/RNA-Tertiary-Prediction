@@ -17,17 +17,7 @@ from _deprecated_tools import compute_similarity
 from torch.utils.data import DataLoader, TensorDataset, random_split
 
 from torch.optim import Adam
-from tools import (
-    Vector,
-    compute_delta_matrix,
-    encode_str,
-    coords_list_to_matrix,
-    coord_matrix_to_list,
-    coord_to_distance_matrix,
-    adjust_coords,
-    align,
-    plot_coords_list,
-)
+from tools import *
 
 # set here to cwd
 os.chdir(os.path.dirname(os.path.abspath(__file__)))
