@@ -139,6 +139,19 @@ def drop_random(deltas: Tensor, drop_rate: float) -> Tensor:
     deltas = deltas * mask
     return deltas
 
+def drop_index_diff(deltas: Tensor, max_index_diff: int) -> Tensor:
+    """
+    To be used on deltas which is of shape [N, N, 3].
+    Randomly drop elements from a tensor with a given probability.
+    """
+    mask = torch.zeros(deltas.shape)
+    for i in range(deltas.shape[0]):
+        for j in range(deltas.shape[1]):
+            if abs(i - j) < max_index_diff:
+                mask[i][j] = 1
+    deltas = deltas * mask
+    return deltas
+
 
 def sub_next_coord(active_coord_matrix: Tensor) -> Tensor:
     """
@@ -171,6 +184,7 @@ def adjust_coords(
     delta_drop_rate: float,
     max_delta: float,
     iterations_per_residue: int,
+    max_index_diff: int,
 ) -> list[Vector]:
     """
     Make coords match the distance matrix via simulation.
@@ -208,6 +222,7 @@ def adjust_coords(
         )
         # 3.1. Drop some deltas to simulate imperfect information
         deltas = drop_random(deltas, drop_rate=delta_drop_rate)
+        deltas = drop_index_diff(deltas, max_index_diff=max_index_diff)
         # 4. Add the deltas to the coordinates.
         coord_matrix[:max_index, :max_index] += deltas
         # 5. Record the current state.
