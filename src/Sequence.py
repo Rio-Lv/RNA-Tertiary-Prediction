@@ -18,7 +18,7 @@ from torch.utils.data import DataLoader, TensorDataset, random_split
 
 from torch.optim import Adam
 from tools import *
-
+from SpineModel import SpineModel
 # set here to cwd
 os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
@@ -46,7 +46,7 @@ GRAVITY = 0.001
 VIDEO_SPEED = ITERATIONS // 200  # Speed of the video in frames per second
 
 DIR_BIAS_X = 1  # Bias for the x direction in random walk
-DELTA_DROP_RATE = 0.95  # Rate at which deltas are dropped
+DELTA_DROP_RATE = 0.95 # Rate at which deltas are dropped
 MAX_INDEX_DIFF = SEQUENCE_SIZE
 # NOISY_SOURCE_MATRIX = True
 
@@ -170,35 +170,12 @@ class Sequence:
                 self.coords[i].y = random.uniform(-noise, noise)
                 self.coords[i].z = random.uniform(-noise, noise)
             return self.coords
-
-    def _test_adjust_coords_video(
-        self,
-        iterations: int,
-        speed: int,
-        video_filename="seq_output/adjustment.mp4",
-        interval=33,
-    ):
-        """
-        Adjust the coordinates to match the distance matrix and output a video
-        showing the adjustment process over multiple iterations.
-
-        The original coordinates are shown in gray while the adjusted coordinates
-        are plotted in red.
-
-        Parameters:
-        video_filename (str): The filename of the output video.
-        iterations (int): Total number of adjustment iterations.
-        speed (int): Render every Nth frame (downsampling factor for recording).
-        interval (int): Delay between frames in milliseconds.
-        """
-        print("Starting video generation...")
-        start_time = time.time()
+        
+    def _primary_test(self):
         self._coords_to_noise()
-
-        # Adjust the coordinates and record the intermediate states.
         coords_adjusted, recording = adjust_coords(
-            n_iter=iterations,
-            coords=self.coords,
+            n_iter=ITERATIONS,
+            input_coords=self.coords,
             target_matrix=self.distance_matrix,
             temperature=TEMPERATURE,
             delta_drop_rate=DELTA_DROP_RATE,
@@ -206,165 +183,217 @@ class Sequence:
             iterations_per_residue=ITERATIONS_PER_RESIDUE,
             max_index_diff=MAX_INDEX_DIFF,
         )
-
-        gen_path = "seq_output/seq_generated.pdb"
-        target_path = "seq_output/seq_target.pdb"
-
-        self.to_pdb(
-            coords_adjusted,
-            self.seq_str,
-            save_path=gen_path,
+        
+        target_coords = self.coords
+        create_video(
+            target_coords=target_coords,
+            recording=recording,
+            speed=VIDEO_SPEED,
+            save_path="seq_output/adjustment.mp4",
+            interval=33,
         )
-        self.to_pdb(
-            self.source_coords,
-            self.seq_str,
-            save_path=target_path,
-        )
+        plot_coords_list([self.coords, coords_adjusted], ["Original", "Adjusted"])
 
-        self.compute_similarity_us_align(
-            gen_path=gen_path,
-            target_path=target_path,
-        )
+    # def _test_adjust_coords_video(
+    #     self,
+    #     iterations: int,
+    #     speed: int,
+    #     video_filename="seq_output/adjustment.mp4",
+    #     interval=33,
+    #     final_coords=list[Vector],
+    #     recording=list[Tensor],
+    # ):
+    #     """
+    #     Adjust the coordinates to match the distance matrix and output a video
+    #     showing the adjustment process over multiple iterations.
 
-        # Store the original coordinates (as a list of Vectors).
-        original_coords: list[Vector] = self.source_coords
+    #     The original coordinates are shown in gray while the adjusted coordinates
+    #     are plotted in red.
 
-        # Convert each recorded tensor (shape: [N, 3]) into a list of Vector objects.
-        recording_coords: list[list[Vector]] = []
-        for frame_tensor in recording:
-            frame_coords = [
-                Vector(coord[0].item(), coord[1].item(), coord[2].item())
-                for coord in frame_tensor
-            ]
-            recording_coords.append(frame_coords)
+    #     Parameters:
+    #     video_filename (str): The filename of the output video.
+    #     iterations (int): Total number of adjustment iterations.
+    #     speed (int): Render every Nth frame (downsampling factor for recording).
+    #     interval (int): Delay between frames in milliseconds.
+    #     """
+    #     print("Starting video generation...")
+    #     start_time = time.time()
+    #     self._coords_to_noise()
+        
+    #     # Use Spine model for initial coordinates
+    #     spine_model = SpineModel()
+    #     # Adjust the coordinates and record the intermediate states.
+    #     coords_adjusted, recording = adjust_coords(
+    #         n_iter=iterations,
+    #         coords=self.coords,
+    #         target_matrix=self.distance_matrix,
+    #         temperature=TEMPERATURE,
+    #         delta_drop_rate=DELTA_DROP_RATE,
+    #         max_delta=MAX_DELTA,
+    #         iterations_per_residue=ITERATIONS_PER_RESIDUE,
+    #         max_index_diff=MAX_INDEX_DIFF,
+    #     )
 
-        # Downsample the recording so that only every Nth frame is rendered.
-        recording_coords = recording_coords[::speed]
-        num_frames = len(recording_coords)
+    
+    #     # Store the original coordinates (as a list of Vectors).
+    #     original_coords: list[Vector] = self.source_coords
 
-        # Compute bounding box limits based on the original coordinates with 25% padding.
-        x_orig_vals = [coord.x for coord in original_coords]
-        y_orig_vals = [coord.y for coord in original_coords]
-        z_orig_vals = [coord.z for coord in original_coords]
+    #     # Convert each recorded tensor (shape: [N, 3]) into a list of Vector objects.
+    #     recording_coords: list[list[Vector]] = []
+    #     for frame_tensor in recording:
+    #         frame_coords = [
+    #             Vector(coord[0].item(), coord[1].item(), coord[2].item())
+    #             for coord in frame_tensor
+    #         ]
+    #         recording_coords.append(frame_coords)
 
-        x_min, x_max = min(x_orig_vals), max(x_orig_vals)
-        y_min, y_max = min(y_orig_vals), max(y_orig_vals)
-        z_min, z_max = min(z_orig_vals), max(z_orig_vals)
+    #     # Downsample the recording so that only every Nth frame is rendered.
+    #     recording_coords = recording_coords[::speed]
+    #     num_frames = len(recording_coords)
 
-        # Ensure nonzero ranges.
-        x_range = x_max - x_min if (x_max - x_min) != 0 else 1.0
-        y_range = y_max - y_min if (y_max - y_min) != 0 else 1.0
-        z_range = z_max - z_min if (z_max - z_min) != 0 else 1.0
+    #     # Compute bounding box limits based on the original coordinates with 25% padding.
+    #     x_orig_vals = [coord.x for coord in original_coords]
+    #     y_orig_vals = [coord.y for coord in original_coords]
+    #     z_orig_vals = [coord.z for coord in original_coords]
 
-        x_pad = 0.25 * x_range
-        y_pad = 0.25 * y_range
-        z_pad = 0.25 * z_range
+    #     x_min, x_max = min(x_orig_vals), max(x_orig_vals)
+    #     y_min, y_max = min(y_orig_vals), max(y_orig_vals)
+    #     z_min, z_max = min(z_orig_vals), max(z_orig_vals)
 
-        x_lim = (x_min - x_pad, x_max + x_pad)
-        y_lim = (y_min - y_pad, y_max + y_pad)
-        z_lim = (z_min - z_pad, z_max + z_pad)
+    #     # Ensure nonzero ranges.
+    #     x_range = x_max - x_min if (x_max - x_min) != 0 else 1.0
+    #     y_range = y_max - y_min if (y_max - y_min) != 0 else 1.0
+    #     z_range = z_max - z_min if (z_max - z_min) != 0 else 1.0
 
-        # Create a 3D plot for the animation.
-        fig = plt.figure()
-        ax = fig.add_subplot(111, projection="3d")
+    #     x_pad = 0.25 * x_range
+    #     y_pad = 0.25 * y_range
+    #     z_pad = 0.25 * z_range
 
-        def init():
-            ax.clear()
-            ax.set_xlim(x_lim)
-            ax.set_ylim(y_lim)
-            ax.set_zlim(z_lim)
-            # Plot original coordinates.
-            x_orig = [coord.x for coord in original_coords]
-            y_orig = [coord.y for coord in original_coords]
-            z_orig = [coord.z for coord in original_coords]
-            ax.scatter(x_orig, y_orig, z_orig, color="gray", s=100, label="Original")
-            ax.plot(
-                x_orig,
-                y_orig,
-                z_orig,
-                color="gray",
-                alpha=0.7,
-                linewidth=2,
-                label="Original Path",
-            )
-            ax.set_xlabel("X")
-            ax.set_ylabel("Y")
-            ax.set_zlabel("Z")
-            ax.set_title("Adjustment Process")
-            return []
+    #     x_lim = (x_min - x_pad, x_max + x_pad)
+    #     y_lim = (y_min - y_pad, y_max + y_pad)
+    #     z_lim = (z_min - z_pad, z_max + z_pad)
 
-        def update(frame):
-            # Print progress every 10 frames.
-            if (frame + 1) % 10 == 0 or frame == 0:
-                print(f"Processing frame {frame+1}/{num_frames}")
+    #     # Create a 3D plot for the animation.
+    #     fig = plt.figure()
+    #     ax = fig.add_subplot(111, projection="3d")
 
-            # Optionally, align the current recorded frame to the original coordinates.
-            current_coords = align(recording_coords[frame], original_coords)
-            x_adj = [coord.x for coord in current_coords]
-            y_adj = [coord.y for coord in current_coords]
-            z_adj = [coord.z for coord in current_coords]
+    #     def init():
+    #         ax.clear()
+    #         ax.set_xlim(x_lim)
+    #         ax.set_ylim(y_lim)
+    #         ax.set_zlim(z_lim)
+    #         # Plot original coordinates.
+    #         x_orig = [coord.x for coord in original_coords]
+    #         y_orig = [coord.y for coord in original_coords]
+    #         z_orig = [coord.z for coord in original_coords]
+    #         ax.scatter(x_orig, y_orig, z_orig, color="gray", s=100, label="Original")
+    #         ax.plot(
+    #             x_orig,
+    #             y_orig,
+    #             z_orig,
+    #             color="gray",
+    #             alpha=0.7,
+    #             linewidth=2,
+    #             label="Original Path",
+    #         )
+    #         ax.set_xlabel("X")
+    #         ax.set_ylabel("Y")
+    #         ax.set_zlabel("Z")
+    #         ax.set_title("Adjustment Process")
+    #         return []
 
-            ax.clear()
-            ax.set_xlim(x_lim)
-            ax.set_ylim(y_lim)
-            ax.set_zlim(z_lim)
+    #     def update(frame):
+    #         # Print progress every 10 frames.
+    #         if (frame + 1) % 10 == 0 or frame == 0:
+    #             print(f"Processing frame {frame+1}/{num_frames}")
 
-            # Plot the static original coordinates.
-            x_orig = [coord.x for coord in original_coords]
-            y_orig = [coord.y for coord in original_coords]
-            z_orig = [coord.z for coord in original_coords]
-            ax.scatter(x_orig, y_orig, z_orig, color="gray", s=100, label="Original")
-            ax.plot(
-                x_orig,
-                y_orig,
-                z_orig,
-                color="gray",
-                alpha=0.7,
-                linewidth=2,
-                label="Original Path",
-            )
-            # Plot the adjusted (dynamic) coordinates.
-            ax.scatter(x_adj, y_adj, z_adj, color="red", s=100, label="Adjusted")
-            ax.plot(
-                x_adj,
-                y_adj,
-                z_adj,
-                color="red",
-                alpha=0.7,
-                linewidth=2,
-                label="Adjusted Path",
-            )
+    #         # Optionally, align the current recorded frame to the original coordinates.
+    #         current_coords = align(recording_coords[frame], original_coords)
+    #         x_adj = [coord.x for coord in current_coords]
+    #         y_adj = [coord.y for coord in current_coords]
+    #         z_adj = [coord.z for coord in current_coords]
 
-            ax.set_xlabel("X")
-            ax.set_ylabel("Y")
-            ax.set_zlabel("Z")
-            ax.set_title(f"Adjustment Frame {frame+1}")
-            ax.legend(loc="upper right")
-            return []
+    #         ax.clear()
+    #         ax.set_xlim(x_lim)
+    #         ax.set_ylim(y_lim)
+    #         ax.set_zlim(z_lim)
 
-        # Create the animation object using the decimated recording.
-        ani = animation.FuncAnimation(
-            fig,
-            update,
-            frames=range(num_frames),
-            init_func=init,
-            interval=interval,
-            repeat=False,
-        )
+    #         # Plot the static original coordinates.
+    #         x_orig = [coord.x for coord in original_coords]
+    #         y_orig = [coord.y for coord in original_coords]
+    #         z_orig = [coord.z for coord in original_coords]
+    #         ax.scatter(x_orig, y_orig, z_orig, color="gray", s=100, label="Original")
+    #         ax.plot(
+    #             x_orig,
+    #             y_orig,
+    #             z_orig,
+    #             color="gray",
+    #             alpha=0.7,
+    #             linewidth=2,
+    #             label="Original Path",
+    #         )
+    #         # Plot the adjusted (dynamic) coordinates.
+    #         ax.scatter(x_adj, y_adj, z_adj, color="red", s=100, label="Adjusted")
+    #         ax.plot(
+    #             x_adj,
+    #             y_adj,
+    #             z_adj,
+    #             color="red",
+    #             alpha=0.7,
+    #             linewidth=2,
+    #             label="Adjusted Path",
+    #         )
 
-        # Save the video using the FFmpeg writer.
-        Writer = animation.writers["ffmpeg"]
-        writer = Writer(
-            fps=1000 // interval, metadata=dict(artist="Your Name"), bitrate=1800
-        )
-        ani.save(video_filename, writer=writer)
-        plt.close(fig)
+    #         ax.set_xlabel("X")
+    #         ax.set_ylabel("Y")
+    #         ax.set_zlabel("Z")
+    #         ax.set_title(f"Adjustment Frame {frame+1}")
+    #         ax.legend(loc="upper right")
+    #         return []
 
-        elapsed_time = time.time() - start_time
-        print(f"Video saved to {video_filename} in {elapsed_time:.2f} seconds")
+    #     # Create the animation object using the decimated recording.
+    #     ani = animation.FuncAnimation(
+    #         fig,
+    #         update,
+    #         frames=range(num_frames),
+    #         init_func=init,
+    #         interval=interval,
+    #         repeat=False,
+    #     )
 
-        if OPEN_PLOT:
-            plot_coords_list([original_coords, self.coords], ["Original", "Adjusted"])
+    #     # Save the video using the FFmpeg writer.
+    #     Writer = animation.writers["ffmpeg"]
+    #     writer = Writer(
+    #         fps=1000 // interval, metadata=dict(artist="Your Name"), bitrate=1800
+    #     )
+    #     ani.save(video_filename, writer=writer)
+    #     plt.close(fig)
+
+    #     elapsed_time = time.time() - start_time
+    #     print(f"Video saved to {video_filename} in {elapsed_time:.2f} seconds")
+        
+    #     gen_path = "seq_output/seq_generated.pdb"
+    #     target_path = "seq_output/seq_target.pdb"
+
+    #     self.to_pdb(
+    #         coords_adjusted,
+    #         self.seq_str,
+    #         save_path=gen_path,
+    #     )
+    #     self.to_pdb(
+    #         self.source_coords,
+    #         self.seq_str,
+    #         save_path=target_path,
+    #     )
+
+    #     self.compute_similarity_us_align(
+    #         gen_path=gen_path,
+    #         target_path=target_path,
+    #     )
+
+
+    #     if OPEN_PLOT:
+    #         plot_coords_list([original_coords, self.coords], ["Original", "Adjusted"])
 
 
 # ====== DATA PPEPERATION ======
@@ -517,6 +546,6 @@ if __name__ == "__main__":
     print(f"Sequence Length: {len(seq.seq_str)}")
     # seq._coords_to_noise()
     # seq.adjust_coords(n_iter=100, use_neighbors=USE_NEIGHBORS)
-    seq._test_adjust_coords_video(iterations=ITERATIONS, speed=VIDEO_SPEED)
+    seq._primary_test()
 
     # Sequence.compute_similarity_us_align()

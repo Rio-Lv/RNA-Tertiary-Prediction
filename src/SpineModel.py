@@ -1,24 +1,7 @@
-# SPDX‑License‑Identifier: MIT
-"""Train or *continue* training a feed-forward network that maps an encoding
-(4 x sequence_size) to a distance matrix (sequence_size x sequence_size).
-
-Key behaviour
--------------
-* Always **load** cached model weights _if they exist_, then keep training for
-  ``SPINE_TRAIN_EPOCHS`` more iterations.  Each run therefore fine-tunes the
-  model a bit further instead of skipping training.
-* Two independent toggles control cache deletion:
-
-    RESET_DATA  - delete the cached dataset and regenerate it next run
-    RESET_MODEL - delete the cached network weights and start from scratch
-
-Run directly::
-
-    python spine_model.py
-"""
 from __future__ import annotations
 
 import os, pathlib
+import random
 from typing import Tuple, Dict, Any
 
 import matplotlib.pyplot as plt
@@ -26,15 +9,13 @@ import torch
 from torch import nn
 from torch.optim import Adam
 from torch.utils.data import DataLoader, TensorDataset, random_split
-from Sequence import Vector
-
 from typing import List
 from tools import *
 
 
-EPS = 1e-6  # avoids 0‑division
-MAX_DELTA = 0.10  # clip per‑step movement (Å)
-N_ITER = 300  # relax steps *after each point*
+EPS = 1e-8  # avoids 0‑division
+MAX_DELTA = 0.01  # clip per‑step movement (Å)
+N_ITER = 3000  # relax steps *after each point*
 
 
 # ------------------------- hyper‑parameters ------------------------- #
@@ -80,26 +61,6 @@ def plot_distance_heatmap(
     plt.xlabel("Residue index")
     plt.ylabel("Residue index")
     plt.tight_layout()
-    plt.show()
-
-
-def plot_coords(coords: List[Vector], title: str = "3D Coordinates") -> None:
-    """
-    Plot 3D coordinates in a scatter plot.
-    Plot lines between i and i+1 to show the backbone.
-    """
-    fig = plt.figure()
-    ax = fig.add_subplot(111, projection="3d")
-    x = [coord.x for coord in coords]
-    y = [coord.y for coord in coords]
-    z = [coord.z for coord in coords]
-
-    # plot lines between i and i+1
-    for i in range(len(coords) - 1):
-        ax.plot([x[i], x[i + 1]], [y[i], y[i + 1]], [z[i], z[i + 1]], color="b")
-
-    ax.scatter(x, y, z, c="r", marker="o")
-    ax.set_title(title)
     plt.show()
 
 
@@ -306,12 +267,23 @@ class SpineModel(nn.Module):
     def construct_spine_coords(
         self, seq_str: str, n_iter: int = N_ITER, max_delta: float = MAX_DELTA
     ) -> List[Vector]:
+        coords = [Vector(
+            x=random.uniform(-1, 1),
+            y=random.uniform(-1, 1),
+            z=random.uniform(-1, 1),
+            ) for _ in range(len(seq_str))]
         distance_matrix = self.construct_distance_matrix(seq_str)
-        
-        for iter in range(n_iter):
-            # initialize coordinates
-            coords = [Vector(0, 0, 0) for _ in range(len(seq_str))]
-            coords[0] = Vector(0, 0, 0)
+        coords, recording = adjust_coords(
+            n_iter=n_iter,
+            coords=coords,
+            target_matrix=distance_matrix,
+            max_delta=max_delta,
+            iterations_per_residue=1,
+            temperature=0.1,
+            delta_drop_rate=0,
+            max_index_diff=SPINE_WINDOW_SIZE
+        )
+        return coords
         
 
 # --------------------------- script entry -------------------------- #
@@ -365,7 +337,8 @@ if __name__ == "__main__":
     spine_model = SpineModel()
     # create a distance matrix for a random sequence
     distance_matrix = spine_model.construct_distance_matrix("ACGUAAAA")
-    spine_coords = spine_model.construct_spine_coords("ACGUAAAAGUGUGUCCGCGCG")
+    spine_coords = spine_model.construct_spine_coords("ACGUAACGCGUAUAUAUCACACACUCUCUGCGCGC")
     # plot the coordinates
-    plot_coords(spine_coords, title="3D Coordinates")
+    plot_coords_list([spine_coords], ["Spine Coordinates"])
     plot_distance_heatmap(distance_matrix)
+
