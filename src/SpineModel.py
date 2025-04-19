@@ -14,8 +14,9 @@ from tools import *
 
 
 EPS = 1e-8  # avoids 0‑division
-MAX_DELTA = 0.01  # clip per‑step movement (Å)
-N_ITER = 3000  # relax steps *after each point*
+MAX_DELTA = 0.5  # clip per‑step movement (Å)
+N_ITER = 500  # relax steps *after each point*
+SPINE_ITERATIONS_PER_RESIDUE = 50
 
 
 # ------------------------- hyper‑parameters ------------------------- #
@@ -268,20 +269,27 @@ class SpineModel(nn.Module):
         self, seq_str: str, n_iter: int = N_ITER, max_delta: float = MAX_DELTA
     ) -> List[Vector]:
         coords = [Vector(
-            x=random.uniform(-1, 1),
-            y=random.uniform(-1, 1),
-            z=random.uniform(-1, 1),
+            x=random.uniform(-10, 10),
+            y=random.uniform(-10, 10),
+            z=random.uniform(-10, 10),
             ) for _ in range(len(seq_str))]
+        start_coords = coords.copy()
         distance_matrix = self.construct_distance_matrix(seq_str)
         coords, recording = adjust_coords(
             n_iter=n_iter,
-            coords=coords,
+            input_coords=coords,
             target_matrix=distance_matrix,
             max_delta=max_delta,
-            iterations_per_residue=1,
+            iterations_per_residue=SPINE_ITERATIONS_PER_RESIDUE,
             temperature=0.1,
-            delta_drop_rate=0,
+            delta_drop_rate=0.5,
             max_index_diff=SPINE_WINDOW_SIZE
+        )
+        create_video(
+            target_coords=start_coords,
+            recording=recording,
+            save_path="seq_output/construct_spine.mp4",
+            speed = len(recording)//200,
         )
         return coords
         
@@ -290,7 +298,7 @@ class SpineModel(nn.Module):
 
 if __name__ == "__main__":
 
-    # # 1. ===== TRAINING THE MODEL =====
+    # 1. ===== TRAINING THE MODEL =====
     # torch.set_printoptions(precision=4, sci_mode=False)
 
     # model = SpineModel()
@@ -336,9 +344,9 @@ if __name__ == "__main__":
     # 2. ===== USING THE MODEL =====
     spine_model = SpineModel()
     # create a distance matrix for a random sequence
-    distance_matrix = spine_model.construct_distance_matrix("ACGUAAAA")
-    spine_coords = spine_model.construct_spine_coords("ACGUAACGCGUAUAUAUCACACACUCUCUGCGCGC")
+    # distance_matrix = spine_model.construct_distance_matrix("ACGUAAAA")
+    spine_coords = spine_model.construct_spine_coords("ACGUAACGUACCCGUUCACUACUACUA")
     # plot the coordinates
     plot_coords_list([spine_coords], ["Spine Coordinates"])
-    plot_distance_heatmap(distance_matrix)
+    # plot_distance_heatmap(distance_matrix)
 
