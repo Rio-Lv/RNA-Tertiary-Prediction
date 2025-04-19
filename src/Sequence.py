@@ -25,7 +25,7 @@ os.chdir(os.path.dirname(os.path.abspath(__file__)))
 # ====== CONSTANTS ======
 SEQUENCE_SIZE = 300
 
-N_SEQUENCES = 20
+N_SEQUENCES = 50
 # N_NEAREST_NEIGBORS = 30  # If using n nearest neighbors for adjustment
 # MAX_DISTANCE = 32  # If using neightbor within distance for adjustment
 # USE_NEIGHBORS = False  # If using n nearest neighbors for adjustment

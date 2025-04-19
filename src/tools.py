@@ -9,6 +9,7 @@ import matplotlib.pyplot as plt
 EPS = 1e-8
 
 
+
 # ====== TYPES ======
 class Vector:
     x: float
