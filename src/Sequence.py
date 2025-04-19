@@ -23,7 +23,7 @@ from SpineModel import SpineModel
 os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
 # ====== CONSTANTS ======
-SEQUENCE_SIZE = 300
+SEQUENCE_SIZE = 100
 
 N_SEQUENCES = 50
 # N_NEAREST_NEIGBORS = 30  # If using n nearest neighbors for adjustment
@@ -172,10 +172,12 @@ class Sequence:
             return self.coords
         
     def _primary_test(self):
-        self._coords_to_noise()
+        target_coords = self.coords.copy()
+        input_coords = self._coords_to_noise()
+        
         coords_adjusted, recording = adjust_coords(
             n_iter=ITERATIONS,
-            input_coords=self.coords,
+            input_coords=input_coords,
             target_matrix=self.distance_matrix,
             temperature=TEMPERATURE,
             delta_drop_rate=DELTA_DROP_RATE,
@@ -184,7 +186,22 @@ class Sequence:
             max_index_diff=MAX_INDEX_DIFF,
         )
         
-        target_coords = self.coords
+           # Save the adjusted coordinates to a PDB file
+        self.to_pdb(
+            coords_adjusted,
+            self.seq_str,
+            save_path="seq_output/seq_generated.pdb",
+        )
+        # Save the original coordinates to a PDB file
+        self.to_pdb(
+            target_coords,
+            self.seq_str,
+            save_path="seq_output/seq_target.pdb",
+        )
+        self.compute_similarity_us_align(
+            gen_path="seq_output/seq_generated.pdb",
+            target_path="seq_output/seq_target.pdb",
+        )
         create_video(
             target_coords=target_coords,
             recording=recording,
@@ -192,7 +209,8 @@ class Sequence:
             save_path="seq_output/adjustment.mp4",
             interval=33,
         )
-        plot_coords_list([self.coords, coords_adjusted], ["Original", "Adjusted"])
+     
+        plot_coords_list([target_coords, coords_adjusted], ["Original", "Adjusted"])
 
     # def _test_adjust_coords_video(
     #     self,
