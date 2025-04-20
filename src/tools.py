@@ -14,8 +14,8 @@ import time
 import matplotlib.animation as animation
 
 EPS = 1e-8
-VIDEO_PADDING = 0.3
-MIN_BOUNCE_DISTANCE = 5  # Minimum distance between atoms after bounce
+VIDEO_PADDING = 0.25
+MIN_BOUNCE_DISTANCE = 3.5  # Minimum distance between atoms after bounce
 
 # ====== TYPES ======
 class Vector:
