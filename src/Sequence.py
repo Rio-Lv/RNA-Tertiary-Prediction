@@ -19,6 +19,7 @@ from torch.utils.data import DataLoader, TensorDataset, random_split
 from torch.optim import Adam
 from tools import *
 from SpineModel import SpineModel
+
 # set here to cwd
 os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
@@ -31,7 +32,7 @@ N_SEQUENCES = 50
 # USE_NEIGHBORS = False  # If using n nearest neighbors for adjustment
 
 ITERATIONS = 2000
-ITERATIONS_PER_RESIDUE = (ITERATIONS//SEQUENCE_SIZE)//2 
+ITERATIONS_PER_RESIDUE = (ITERATIONS // SEQUENCE_SIZE) // 2
 TEMPERATURE = 0.1
 MAX_DELTA = 0.5
 
@@ -46,7 +47,7 @@ GRAVITY = 0.001
 VIDEO_SPEED = ITERATIONS // 200  # Speed of the video in frames per second
 
 DIR_BIAS_X = 1  # Bias for the x direction in random walk
-ACTIVE_KEEP_RATE = 0.97 # Rate at which deltas are dropped
+ACTIVE_KEEP_RATE = 0.97  # Rate at which deltas are dropped
 MAX_INDEX_DIFF = 200
 # NOISY_SOURCE_MATRIX = True
 
@@ -170,11 +171,11 @@ class Sequence:
                 self.coords[i].y = random.uniform(-noise, noise)
                 self.coords[i].z = random.uniform(-noise, noise)
             return self.coords
-        
+
     def _primary_test(self):
         target_coords = self.coords.copy()
         input_coords = self._coords_to_noise()
-        
+
         coords_adjusted, recording = adjust_coords(
             n_iter=ITERATIONS,
             input_coords=input_coords,
@@ -185,8 +186,8 @@ class Sequence:
             iterations_per_residue=ITERATIONS_PER_RESIDUE,
             max_index_diff=MAX_INDEX_DIFF,
         )
-        
-           # Save the adjusted coordinates to a PDB file
+
+        # Save the adjusted coordinates to a PDB file
         self.to_pdb(
             coords_adjusted,
             self.seq_str,
@@ -209,7 +210,7 @@ class Sequence:
             save_path="seq_output/adjustment.mp4",
             interval=33,
         )
-     
+
         plot_coords_list([target_coords, coords_adjusted], ["Original", "Adjusted"])
 
     # def _test_adjust_coords_video(
@@ -237,7 +238,7 @@ class Sequence:
     #     print("Starting video generation...")
     #     start_time = time.time()
     #     self._coords_to_noise()
-        
+
     #     # Use Spine model for initial coordinates
     #     spine_model = SpineModel()
     #     # Adjust the coordinates and record the intermediate states.
@@ -252,7 +253,6 @@ class Sequence:
     #         max_index_diff=MAX_INDEX_DIFF,
     #     )
 
-    
     #     # Store the original coordinates (as a list of Vectors).
     #     original_coords: list[Vector] = self.source_coords
 
@@ -389,7 +389,7 @@ class Sequence:
 
     #     elapsed_time = time.time() - start_time
     #     print(f"Video saved to {video_filename} in {elapsed_time:.2f} seconds")
-        
+
     #     gen_path = "seq_output/seq_generated.pdb"
     #     target_path = "seq_output/seq_target.pdb"
 
@@ -408,7 +408,6 @@ class Sequence:
     #         gen_path=gen_path,
     #         target_path=target_path,
     #     )
-
 
     #     if OPEN_PLOT:
     #         plot_coords_list([original_coords, self.coords], ["Original", "Adjusted"])
@@ -534,36 +533,63 @@ if __name__ == "__main__":
     # seq.test_adjust_coords_video()
     # print(seq)
 
-    # # ============ Test 1 ==============
-    # # Test the Sequence Dataset class
-    # seq_dataset = SequenceDataset()
-    # print(len(seq_dataset.source_sequences))
-    # # Initialize a real sequence (Distance Matrix Assigned)
-    # seq = seq_dataset.get_random_sequence()
-    # # seq.test_adjust_coords_video()
-    # # 1. Replace Coordinate with Random Noise
-    # seq._coords_to_noise()
-    # # 2. Adjust Coordinates to match the distance matrix
-    # seq.adjust_coords(n_iter=100)
-    # # 3. Align the sequence to a target sequence
-    # seq.align(seq.source_coords)
-    # # 4. Save the adjusted coordinates to a PDB file
-    # seq.to_pdb("data/pdbs_fake/sequence_class_test.pdb")
-    # # 5. Plot the original and adjusted coordinates (optional)
-    # seq.plot([seq.source_coords, seq.coords], ["Original", "Adjusted"])
-
-    # =============== Test 2 ==============
-    print("Loading Sequence Dataset")
+    # ============ Test 1 ==============
+    # Test the Sequence Dataset class
     seq_dataset = SequenceDataset(n_sequences=N_SEQUENCES, sequence_size=SEQUENCE_SIZE)
     print(len(seq_dataset.source_sequences))
     # Initialize a real sequence (Distance Matrix Assigned)
-    # seq_dataset.get_stats()
-    print("Loading Random Sequence")
-    # seq = seq_dataset.get_random_sequence()
-    seq = seq_dataset.source_sequences[0]
-    print(f"Sequence Length: {len(seq.seq_str)}")
+    seq = seq_dataset.get_random_sequence()
+    # seq.test_adjust_coords_video()
+    # 1. Replace Coordinate with Random Noise
     # seq._coords_to_noise()
-    # seq.adjust_coords(n_iter=100, use_neighbors=USE_NEIGHBORS)
-    seq._primary_test()
+    # 1.2 Replace Coordinate with Contrsucted Spine Model
+    spine_model = SpineModel()
+    spine_coords, spine_recording = spine_model.construct_spine_coords(
+        n_iter=10000, iterations_per_residue=50, seq_str=seq.seq_str, max_delta=0.5
+    )
+
+    target_matrix = seq.distance_matrix.clone()
+    adjusted_coords, recording = adjust_coords(
+        n_iter=ITERATIONS,
+        input_coords=spine_coords,
+        target_matrix=target_matrix,
+        temperature=TEMPERATURE,
+        active_keep_rate=ACTIVE_KEEP_RATE,
+        max_delta=MAX_DELTA
+    )
+
+    target_pdb_path = "seq_output/sequence_source.pdb"
+    generated_pdb_path = "seq_output/sequence_generatored.pdb"
+    Sequence.to_pdb(coords=seq.coords, seq_str=seq.seq_str, save_path=target_pdb_path)
+    Sequence.to_pdb(
+        coords=adjusted_coords, seq_str=seq.seq_str, save_path=generated_pdb_path
+    )
+    Sequence.compute_similarity_us_align(
+        gen_path=generated_pdb_path, target_path=target_pdb_path
+    )
+
+    create_video(
+        target_coords=seq.coords,
+        recording=spine_recording + recording,
+        speed=VIDEO_SPEED,
+        save_path="videos/Sequence.mp4",
+        interval=33,
+    )
+    # plot_coords_list([seq.coords, adjusted_coords], ["Original", "Adjusted"])
+    plot_coords_list([seq.coords, adjusted_coords], ["Original", "Spine Contructed"])
+
+    # =============== Test 2 ==============
+    # print("Loading Sequence Dataset")
+    # seq_dataset = SequenceDataset(n_sequences=N_SEQUENCES, sequence_size=SEQUENCE_SIZE)
+    # print(len(seq_dataset.source_sequences))
+    # # Initialize a real sequence (Distance Matrix Assigned)
+    # # seq_dataset.get_stats()
+    # print("Loading Random Sequence")
+    # # seq = seq_dataset.get_random_sequence()
+    # seq = seq_dataset.source_sequences[0]
+    # print(f"Sequence Length: {len(seq.seq_str)}")
+    # # seq._coords_to_noise()
+    # # seq.adjust_coords(n_iter=100, use_neighbors=USE_NEIGHBORS)
+    # seq._primary_test()
 
     # Sequence.compute_similarity_us_align()

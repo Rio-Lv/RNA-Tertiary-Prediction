@@ -14,9 +14,9 @@ from tools import *
 
 
 EPS = 1e-8  # avoids 0‑division
-MAX_DELTA = 0.1  # clip per‑step movement (Å)
-ITERATIONS = 200  # relax steps *after each point*
-SPINE_ITERATIONS_PER_RESIDUE = 5
+MAX_DELTA = 0.5  # clip per‑step movement (Å)
+ITERATIONS = 2000  # relax steps *after each point*
+SPINE_ITERATIONS_PER_RESIDUE = 2
 TEMPERATURE = 0.001
 ACITVE_KEEP_RATE = 1
 
@@ -240,17 +240,22 @@ class SpineModel(nn.Module):
         # plot_distance_heatmap(
         #     distance_matrix, title=f"Distance matrix for {seq_str}"
         # )
-        return distance_matrix * 2 # TODO: Seems that result are too small otherwise? but WHY??
+        return (
+            distance_matrix * 2
+        )  # TODO: Seems that result are too small otherwise? but WHY??
 
     # -------------------------------------------------------------------- #
     #  main driver
     # -------------------------------------------------------------------- #
 
     def construct_spine_coords(
-        self, seq_str: str, n_iter: int = ITERATIONS, max_delta: float = MAX_DELTA
+        self,
+        n_iter: int,
+        iterations_per_residue: int,
+        seq_str: str,
+        max_delta: float = MAX_DELTA,
     ) -> Tuple[List[Vector], List[Vector]]:
-
-        """ 
+        """
         1. first SPINE_WINDOW_SIZE residues are placed 3D random walk
         2. run adjustent to get more feasible shape
         3. iterate the rest of the sequence
@@ -259,37 +264,31 @@ class SpineModel(nn.Module):
             raise ValueError(
                 f"Sequence length ({len(seq_str)}) must be at least {self.sequence_size}"
             )
-        start_iterations = 1000
-        iterations_per_residue = 20
 
         r = 5
         last_coord = Vector(0, 0, 0)
-        last_delta = Vector(r,0,0)
         start_coords = [last_coord]
-        for i in range(len(seq_str)-1):
-            
+        for i in range(len(seq_str) - 1):
+
             last_coord = Vector(
                 last_coord.x + r,
                 random.uniform(-0.01, 0.01),
                 random.uniform(-0.01, 0.01),
             )
             start_coords.append(last_coord)
-            
-            
-        
+
         # part 1, initial coords
         start_distance_matrix = self.construct_distance_matrix(seq_str)
         coords, recording = adjust_coords(
-            n_iter=start_iterations,
+            n_iter=n_iter,
             input_coords=start_coords,
             target_matrix=start_distance_matrix,
             max_delta=max_delta,
             iterations_per_residue=iterations_per_residue,
             temperature=TEMPERATURE,
-            active_keep_rate=ACITVE_KEEP_RATE,
-            max_index_diff=SPINE_WINDOW_SIZE,
+            active_keep_rate=ACITVE_KEEP_RATE
         )
-        
+
         # final_coords += coords
         # final_recording += recording
 
@@ -355,18 +354,21 @@ if __name__ == "__main__":
     # create a distance matrix for a random sequence
     # distance_matrix = spine_model.construct_distance_matrix("ACGUAAAA")
     spine_coords, recording = spine_model.construct_spine_coords(
-        seq_str="CCCCCCCCCGGGGGGG", n_iter=ITERATIONS, max_delta=MAX_DELTA
+        seq_str="CCCCCCCCCGGGGGGGAAAAAAAAACCCCAAAAGGUUGGUGUUGGUGUGGAGAGAGAGAGUAGAGUAGAG",
+        n_iter=ITERATIONS,
+        iterations_per_residue=SPINE_ITERATIONS_PER_RESIDUE,
+        max_delta=MAX_DELTA,
     )
 
     create_video(
         target_coords=spine_coords,
         recording=recording,
-        save_path="seq_output/spine_model.mp4",
+        save_path="videos/SpineModel.mp4",
         speed=len(recording) // 200,
     )
-    
+
     plot_coords_list([spine_coords], ["Spine Coordinates"])
-    
+
     # plot the coordinates
     # distance_matrix = spine_model.construct_distance_matrix(
     #     seq_str="AAAAAAAAAA"

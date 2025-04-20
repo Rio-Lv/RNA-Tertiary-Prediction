@@ -205,8 +205,7 @@ def adjust_coords(
     temperature: float,
     active_keep_rate: float,
     max_delta: float,
-    iterations_per_residue: int,
-    max_index_diff: int,
+    iterations_per_residue: int= None,
 ) -> Tuple[list[Vector], list[Tensor]]:
     """
     Make input_coords match the distance matrix via simulation.
@@ -219,13 +218,12 @@ def adjust_coords(
     coord_matrix = coords_list_to_matrix(input_coords)  # Changes every iteration
     recording = []
     length, _ = coord_matrix.shape
-    index_drop_mask = create_index_drop_mask(
-        distance_matrix=target_matrix, max_index_diff=max_index_diff
-    )
 
+    max_index = length
     for curr in range(n_iter):
 
-        max_index = min(curr // iterations_per_residue + 4, length)
+        if iterations_per_residue:
+            max_index = min(curr // iterations_per_residue + 4, length)
 
         active_coord_matrix = coord_matrix[:max_index].clone()  # rows only
         if len(active_coord_matrix) < length:
@@ -235,7 +233,7 @@ def adjust_coords(
 
         # 1. Initiate Target Structure Via Distance Matrix
         active_distance_matrix = target_matrix.clone()[:max_index, :max_index]
-        active_distance_matrix = active_distance_matrix * index_drop_mask[:max_index, :max_index]
+        active_distance_matrix = active_distance_matrix
         # 2. Apply Heat to the Structure.
         active_distance_matrix = apply_heat(
             active_distance_matrix, temperature
