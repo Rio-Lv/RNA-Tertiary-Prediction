@@ -118,8 +118,6 @@ def plot_distance_heatmap(
     plt.show()
 
 
-
-
 def compute_delta_matrix(
     coord_matrix: Tensor,
     target_distance_matrix: Tensor,
@@ -127,12 +125,11 @@ def compute_delta_matrix(
 ) -> Tensor:
     # mask out values where target distance is less than 1
     mask = target_distance_matrix > 1
-    
+
     curr_distance_matrix = coord_to_distance_matrix(coord_matrix)
     dist_diff = curr_distance_matrix - target_distance_matrix
     dist_diff = dist_diff * mask
     d_coords = coord_matrix.unsqueeze(0) - coord_matrix.unsqueeze(1)
-    
 
     u_vecs = d_coords / (curr_distance_matrix.unsqueeze(2) + EPS)
     deltas = (u_vecs * dist_diff.unsqueeze(2)).sum(dim=1)
@@ -141,6 +138,61 @@ def compute_delta_matrix(
     deltas = deltas * scale
 
     return deltas
+
+
+def atomic_bounce(
+    coord_matrix: Tensor, max_delta: float, min_distance: float = 3.5
+) -> Tensor:
+    """
+    Push apart atoms that are closer than `min_distance`.
+
+    Parameters
+    ----------
+    coord_matrix : Tensor  [N, 3]
+        Cartesian coordinates (in Å) of N atoms.
+    min_distance : float
+        Minimum allowed inter‑atomic distance.
+
+    Returns
+    -------
+    Tensor  [N, 3]
+        New coordinates after a single bounce step.
+    """
+    # Pair‑wise displacement vectors  [N, N, 3]
+    diffs = coord_matrix[:, None, :] - coord_matrix[None, :, :]
+
+    # Euclidean distances  [N, N]
+    dists = torch.linalg.norm(diffs + 1e-12, dim=-1)  # small ε avoids division by zero
+
+    # Mask of offending pairs (exclude i==j on the diagonal)
+    mask = (dists < min_distance) & (dists > 0)
+
+    if not mask.any():  # nothing to do
+        return coord_matrix
+
+    # Unit vectors pointing from j → i   [N, N, 3]
+    directions = diffs / dists.unsqueeze(-1)
+
+    # How far each member of the pair needs to move (scalar)  [N, N]
+    delta = (min_distance - dists) / 2.0  # (Å)
+
+    # Zero‑out pairs we are not fixing
+    delta = delta * mask
+
+    # Vector displacement for *each* ordered pair  [N, N, 3]
+    pair_shifts = directions * delta.unsqueeze(-1)
+
+    # Net shift for each atom = sum of contributions from all partners  [N, 3]
+    atom_shifts = pair_shifts.sum(dim=1)
+    
+    # Scale the shifts to be within max_delta
+    atom_shifts_mags = torch.norm(atom_shifts, dim=1, keepdim=True)
+    scale = max_delta / (atom_shifts_mags + EPS)
+    atom_shifts = atom_shifts * scale
+    atom_shifts = torch.clamp(atom_shifts, -max_delta, max_delta)
+
+    # Apply the shifts
+    return coord_matrix + atom_shifts 
 
 
 def apply_heat(distance_matrix: Tensor, temperature: float) -> Tensor:
@@ -162,9 +214,8 @@ def drop_random(active_distances: Tensor, keep_rate: float) -> Tensor:
     active_distances = active_distances * mask
     return active_distances
 
-def create_index_drop_mask(
-    distance_matrix: Tensor, max_index_diff: int
-) -> Tensor:
+
+def create_index_drop_mask(distance_matrix: Tensor, max_index_diff: int) -> Tensor:
     """
     Create a mask to drop elements from the distance matrix based on index difference.
     """
@@ -174,6 +225,7 @@ def create_index_drop_mask(
             if abs(i - j) > max_index_diff:
                 mask[i, j] = False
     return mask
+
 
 def sub_next_coord(active_coord_matrix: Tensor) -> Tensor:
     """
@@ -205,7 +257,7 @@ def adjust_coords(
     temperature: float,
     active_keep_rate: float,
     max_delta: float,
-    iterations_per_residue: int= None,
+    iterations_per_residue: int = None,
 ) -> Tuple[list[Vector], list[Tensor]]:
     """
     Make input_coords match the distance matrix via simulation.
@@ -226,6 +278,7 @@ def adjust_coords(
             max_index = min(curr // iterations_per_residue + 4, length)
 
         active_coord_matrix = coord_matrix[:max_index].clone()  # rows only
+        
         if len(active_coord_matrix) < length:
             active_coord_matrix = sub_next_coord(active_coord_matrix)
 
@@ -235,11 +288,11 @@ def adjust_coords(
         active_distance_matrix = target_matrix.clone()[:max_index, :max_index]
         active_distance_matrix = active_distance_matrix
         # 2. Apply Heat to the Structure.
-        active_distance_matrix = apply_heat(
-            active_distance_matrix, temperature
-        )
+        active_distance_matrix = apply_heat(active_distance_matrix, temperature)
         # 2.1. Drop some deltas to simulate imperfect information
-        active_distance_matrix = drop_random(active_distance_matrix, keep_rate=active_keep_rate)
+        active_distance_matrix = drop_random(
+            active_distance_matrix, keep_rate=active_keep_rate
+        )
 
         # 3. Compute Deltas Based on Target Distance Matrix
         deltas = compute_delta_matrix(
@@ -248,13 +301,19 @@ def adjust_coords(
             max_delta=max_delta,
         )
         # 4. Add the deltas to the coordinates.
-        coord_matrix[:max_index, :max_index] += deltas
+        active_coord_matrix[:max_index, :max_index] += deltas
+        active_coord_matrix = atomic_bounce(
+            active_coord_matrix, max_delta, min_distance=3.5
+        )
+        coord_matrix[:max_index, :max_index] = active_coord_matrix
         # 5. Record the current state.
         recording.append(active_coord_matrix.clone())
 
     # Update self.coords from the coord_matrix.
     for i in range(len(input_coords)):
-        input_coords[i] = Vector(coord_matrix[i][0], coord_matrix[i][1], coord_matrix[i][2])
+        input_coords[i] = Vector(
+            coord_matrix[i][0], coord_matrix[i][1], coord_matrix[i][2]
+        )
 
     return input_coords, recording
 
@@ -417,7 +476,7 @@ def create_video(
     save_path: str,
     interval: int = 33,
 ):
-    start_time = time.time()    
+    start_time = time.time()
     recording_coords: list[list[Vector]] = []
     for i in range(len(recording)):
         if i % speed != 0:

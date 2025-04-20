@@ -24,7 +24,7 @@ from SpineModel import SpineModel
 os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
 # ====== CONSTANTS ======
-SEQUENCE_SIZE = 100
+SEQUENCE_SIZE = 200
 
 N_SEQUENCES = 50
 # N_NEAREST_NEIGBORS = 30  # If using n nearest neighbors for adjustment
@@ -47,7 +47,7 @@ GRAVITY = 0.001
 VIDEO_SPEED = ITERATIONS // 200  # Speed of the video in frames per second
 
 DIR_BIAS_X = 1  # Bias for the x direction in random walk
-ACTIVE_KEEP_RATE = 0.97  # Rate at which deltas are dropped
+ACTIVE_KEEP_RATE = 1  # Rate at which deltas are dropped
 MAX_INDEX_DIFF = 200
 # NOISY_SOURCE_MATRIX = True
 
@@ -545,7 +545,7 @@ if __name__ == "__main__":
     # 1.2 Replace Coordinate with Contrsucted Spine Model
     spine_model = SpineModel()
     spine_coords, spine_recording = spine_model.construct_spine_coords(
-        n_iter=SEQUENCE_SIZE*10, iterations_per_residue=10, seq_str=seq.seq_str, max_delta=0.5
+        n_iter=SEQUENCE_SIZE*4, iterations_per_residue=4, seq_str=seq.seq_str, max_delta=0.5
     )
     spine_matrix = coord_to_distance_matrix(coords_list_to_matrix(spine_coords))
     print("Spine Matrix: ", spine_matrix)
@@ -561,12 +561,12 @@ if __name__ == "__main__":
                 target_matrix[i][j] = spine_matrix[i][j]
     
     adjusted_coords, recording = adjust_coords(
-        n_iter=ITERATIONS*3,
+        n_iter=ITERATIONS*2,
         input_coords=spine_coords,
         target_matrix=target_matrix,
         temperature=TEMPERATURE,
         active_keep_rate=ACTIVE_KEEP_RATE,
-        max_delta=0.5
+        max_delta=0.2
     )
 
     target_pdb_path = "seq_output/sequence_source.pdb"
