@@ -24,23 +24,23 @@ from SpineModel import SpineModel
 os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
 # ====== CONSTANTS ======
-SEQUENCE_SIZE = 350
+SEQUENCE_SIZE = 250
 
 N_SEQUENCES = 50
 # N_NEAREST_NEIGBORS = 30  # If using n nearest neighbors for adjustment
 # MAX_DISTANCE = 32  # If using neightbor within distance for adjustment
 # USE_NEIGHBORS = False  # If using n nearest neighbors for adjustment
 
-ITERATIONS = 3000
-ITERATIONS_SPINE = 3000
+ITERATIONS = 6000
+ITERATIONS_SPINE = 6000
 
 ITERATIONS_PER_RESIDUE = 4
 ITERATIONS_PER_RESIDUE_SPINE = 4
 
-MAX_DELTA = 0.2
-MAX_DELTA_SPINE = 0.2
+MAX_DELTA = 0.1
+MAX_DELTA_SPINE = 0.4
 
-TEMPERATURE = 0.1
+TEMPERATURE = 1
 
 LABELS_PATH = "data/train_labels.csv"
 SEQUENCES_PATH = "data/train_sequences.csv"
@@ -52,7 +52,7 @@ SEQUENCE_INDEX = 868
 OPEN_PLOT = True  # If True, will open a plot window for each sequence
 GRAVITY = 0.001
 
-VIDEO_SPEED = ITERATIONS // 200  # Speed of the video in frames per second
+VIDEO_SPEED = ITERATIONS // 500  # Speed of the video in frames per second
 
 DIR_BIAS_X = 1  # Bias for the x direction in random walk
 ACTIVE_KEEP_RATE = 0.2  # Rate at which deltas are dropped
@@ -338,7 +338,7 @@ def analyse_scores(N: int):
     scores = []
     mirrored_scores = []
     for iter in range(N):
-        seq_size = random.randint(30, 300)
+        seq_size = random.randint(50, 300)
         seq_sizes.append(seq_size)
         # Test the Sequence Dataset class
         seq_dataset = SequenceDataset(n_sequences=1, sequence_size=seq_size)
@@ -380,7 +380,7 @@ def analyse_scores(N: int):
         target_pdb_path = "seq_output/sequence_source.pdb"
         generated_pdb_path = "seq_output/sequence_generatored.pdb"
         mirrored_pdb_path = "seq_output/sequence_mirrored.pdb"
-        
+
         Sequence.to_pdb(
             coords=seq.coords, seq_str=seq.seq_str, save_path=target_pdb_path
         )
@@ -406,18 +406,16 @@ def analyse_scores(N: int):
     # sort both by seq_sizes
     seq_sizes, scores = zip(*sorted(zip(seq_sizes, scores), key=lambda x: x[0]))
     [
-        print(f"Sequence Size: {seq_sizes[i]}, Score: {scores[i]}, Mirror Score: {mirrored_scores[i]}")
+        print(
+            f"Sequence Size: {seq_sizes[i]}, Score: {scores[i]}, Mirror Score: {mirrored_scores[i]}"
+        )
         for i in range(len(seq_sizes))
     ]
     valid_scores = [s for s in scores if s is not None]
     # take make value from either scores or mirrored_scores
-    
-    max_scores = [
-        max(scores[i], mirrored_scores[i]) for i in range(len(scores))
-    ]
-    min_scores = [
-        min(scores[i], mirrored_scores[i]) for i in range(len(scores))
-    ]
+
+    max_scores = [max(scores[i], mirrored_scores[i]) for i in range(len(scores))]
+    min_scores = [min(scores[i], mirrored_scores[i]) for i in range(len(scores))]
     if valid_scores:  # avoid ZeroDivisionError
         average = sum(valid_scores) / len(valid_scores)
         avarage_max = sum(max_scores) / len(max_scores)
@@ -428,70 +426,90 @@ def analyse_scores(N: int):
     else:
         print("No valid scores were returned.")
 
+def analyse_one():
+    # Test the Sequence Dataset class
+    seq_dataset = SequenceDataset(n_sequences=N_SEQUENCES, sequence_size=SEQUENCE_SIZE)
+    print(len(seq_dataset.source_sequences))
+    # Initialize a real sequence (Distance Matrix Assigned)
+    seq = seq_dataset.get_random_sequence()
+    # seq.test_adjust_coords_video()
+    # 1. Replace Coordinate with Random Noise
+    # seq._coords_to_noise()
+    # 1.2 Replace Coordinate with Contrsucted Spine Model
+    spine_model: SpineModel = SpineModel()
+    spine_coords, spine_recording = spine_model.construct_spine_coords(
+        n_iter=ITERATIONS_SPINE,
+        iterations_per_residue=ITERATIONS_PER_RESIDUE_SPINE,
+        seq_str=seq.seq_str,
+        max_delta=MAX_DELTA_SPINE,
+    )
+    spine_matrix = coord_to_distance_matrix(coords_list_to_matrix(spine_coords))
+    # print("Spine Matrix: ", spine_matrix)
+
+    target_matrix = seq.distance_matrix.clone()
+    # print("Target Matrix: ", target_matrix)
+
+    # swap target matrix with spine matrix whee abs(i-j) < 5
+    for i in range(len(target_matrix)):
+        for j in range(len(target_matrix)):
+            if abs(i - j) < 5:
+                target_matrix[i][j] = spine_matrix[i][j]
+
+    adjusted_coords, recording = adjust_coords(
+        n_iter=ITERATIONS,
+        input_coords=spine_coords,
+        target_matrix=target_matrix,
+        temperature=TEMPERATURE,
+        # iterations_per_residue=ITERATIONS_PER_RESIDUE,
+        active_keep_rate=ACTIVE_KEEP_RATE,
+        max_delta=MAX_DELTA,
+    )
+
+
+    target_pdb_path = "seq_output/sequence_source.pdb"
+    generated_pdb_path = "seq_output/sequence_generatored.pdb"
+    mirrored_pdb_path = "seq_output/sequence_mirrored.pdb"
+
+    Sequence.to_pdb(coords=seq.coords, seq_str=seq.seq_str, save_path=target_pdb_path)
+    Sequence.to_pdb(
+        coords=adjusted_coords, seq_str=seq.seq_str, save_path=generated_pdb_path
+    )
+    Sequence.to_pdb(
+        coords=mirror(adjusted_coords),
+        seq_str=seq.seq_str,
+        save_path=mirrored_pdb_path,
+    )
+
+    score = compute_similarity(path_1=generated_pdb_path, path_2=target_pdb_path)
+    mirror_score = compute_similarity(
+        path_1=mirrored_pdb_path, path_2=target_pdb_path
+    )
+    print(f"SCORE: {score} --   MIRROR SCORE: {mirror_score}")
+    
+    
+    create_video(
+        target_coords=seq.coords,
+        recording=spine_recording + recording,
+        speed=VIDEO_SPEED,
+        save_path="videos/Sequence.mp4",
+        interval=33,
+    )
+
+    # plot_coords_list([seq.coords, adjusted_coords], ["Original", "Adjusted"])
+    plot_coords_list([seq.coords, adjusted_coords], ["Original", "Spine Contructed"])
+
 
 if __name__ == "__main__":
-    # ============ Test 1 ==============
-    # # Test the Sequence Dataset class
-    # seq_dataset = SequenceDataset(n_sequences=N_SEQUENCES, sequence_size=SEQUENCE_SIZE)
-    # print(len(seq_dataset.source_sequences))
-    # # Initialize a real sequence (Distance Matrix Assigned)
-    # seq = seq_dataset.get_random_sequence()
-    # # seq.test_adjust_coords_video()
-    # # 1. Replace Coordinate with Random Noise
-    # # seq._coords_to_noise()
-    # # 1.2 Replace Coordinate with Contrsucted Spine Model
-    # spine_model:SpineModel = SpineModel()
-    # spine_coords, spine_recording = spine_model.construct_spine_coords(
-    #     n_iter=ITERATIONS_SPINE,
-    #     iterations_per_residue=ITERATIONS_PER_RESIDUE_SPINE,
-    #     seq_str=seq.seq_str,
-    #     max_delta=MAX_DELTA_SPINE,
-    # )
-    # spine_matrix = coord_to_distance_matrix(coords_list_to_matrix(spine_coords))
-    # # print("Spine Matrix: ", spine_matrix)
-
-    # target_matrix = seq.distance_matrix.clone()
-    # # print("Target Matrix: ", target_matrix)
-
-    # # swap target matrix with spine matrix whee abs(i-j) < 5
-    # for i in range(len(target_matrix)):
-    #     for j in range(len(target_matrix)):
-    #         if abs(i - j) < 5:
-    #             target_matrix[i][j] = spine_matrix[i][j]
-
-    # adjusted_coords, recording = adjust_coords(
-    #     n_iter=ITERATIONS,
-    #     input_coords=spine_coords,
-    #     target_matrix=target_matrix,
-    #     temperature=TEMPERATURE,
-    #     # iterations_per_residue=ITERATIONS_PER_RESIDUE,
-    #     active_keep_rate=ACTIVE_KEEP_RATE,
-    #     max_delta=MAX_DELTA,
-    # )
-
-    # target_pdb_path = "seq_output/sequence_source.pdb"
-    # generated_pdb_path = "seq_output/sequence_generatored.pdb"
-    # Sequence.to_pdb(coords=seq.coords, seq_str=seq.seq_str, save_path=target_pdb_path)
-    # Sequence.to_pdb(
-    #     coords=adjusted_coords, seq_str=seq.seq_str, save_path=generated_pdb_path
-    # )
-
-    # create_video(
-    #     target_coords=seq.coords,
-    #     recording=spine_recording + recording,
-    #     speed=VIDEO_SPEED,
-    #     save_path="videos/Sequence.mp4",
-    #     interval=33,
-    # )
-    # # plot_coords_list([seq.coords, adjusted_coords], ["Original", "Adjusted"])
-    # plot_coords_list([seq.coords, adjusted_coords], ["Original", "Spine Contructed"])
-
-    # score = compute_similarity(
-    #     path_1=generated_pdb_path, path_2=target_pdb_path
-    # )
-
-    # print(f"SCORE: {score}")
+    # ================ Test 1 ==============
+    print("Testing one sequence")
+    analyse_one()
     # =============== Test 2 ==============
+    
+    # print("Testing multiple sequence lengths scores")
+    # analyse_scores(50)
+    
+    
+    # =============== Test 3 ==============
     # print("Loading Sequence Dataset")
     # seq_dataset = SequenceDataset(n_sequences=N_SEQUENCES, sequence_size=SEQUENCE_SIZE)
     # print(len(seq_dataset.source_sequences))
@@ -507,6 +525,4 @@ if __name__ == "__main__":
 
     # Sequence.compute_similarity_us_align()
 
-    # =============== Test 3 ==============
-    print("Testing multiple sequence lengths scores")
-    analyse_scores(50)
+

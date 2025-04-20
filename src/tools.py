@@ -447,7 +447,7 @@ def plot_coords_list(coords_list: list[list[Vector]], set_names: list[str] = Non
     set_names (list[str]): Optional list of labels for each coordinate set. The length of
                             set_names must match the number of coordinate sets.
     """
-    print(coords_list)
+    # print(coords_list)
     if len(coords_list) > 1:
         coords_list = [align(coords, coords_list[0]) for coords in coords_list]
 
@@ -575,8 +575,8 @@ def create_video(
 
     def update(frame):
         # Print progress every 10 frames.
-        if (frame + 1) % 10 == 0 or frame == 0:
-            print(f"Processing frame {frame+1}/{num_frames}")
+        if (frame) % 10 == 0 or frame == 0:
+            print(f"Processing frame {frame}/{num_frames}")
 
         # Optionally, align the current recorded frame to the original coordinates.
         current_coords = align(recording_coords[frame], target_coords)
