@@ -24,7 +24,7 @@ from SpineModel import SpineModel
 os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
 # ====== CONSTANTS ======
-SEQUENCE_SIZE = 200
+SEQUENCE_SIZE = 100
 
 N_SEQUENCES = 50
 # N_NEAREST_NEIGBORS = 30  # If using n nearest neighbors for adjustment
@@ -545,17 +545,28 @@ if __name__ == "__main__":
     # 1.2 Replace Coordinate with Contrsucted Spine Model
     spine_model = SpineModel()
     spine_coords, spine_recording = spine_model.construct_spine_coords(
-        n_iter=10000, iterations_per_residue=50, seq_str=seq.seq_str, max_delta=0.5
+        n_iter=SEQUENCE_SIZE*10, iterations_per_residue=10, seq_str=seq.seq_str, max_delta=0.5
     )
+    spine_matrix = coord_to_distance_matrix(coords_list_to_matrix(spine_coords))
+    print("Spine Matrix: ", spine_matrix)
+    
 
     target_matrix = seq.distance_matrix.clone()
+    print("Target Matrix: ", target_matrix)
+    
+    # swap target matrix with spine matrix whee abs(i-j) < 5
+    for i in range(len(target_matrix)):
+        for j in range(len(target_matrix)):
+            if abs(i - j) < 5:
+                target_matrix[i][j] = spine_matrix[i][j]
+    
     adjusted_coords, recording = adjust_coords(
-        n_iter=ITERATIONS,
+        n_iter=ITERATIONS*3,
         input_coords=spine_coords,
         target_matrix=target_matrix,
         temperature=TEMPERATURE,
         active_keep_rate=ACTIVE_KEEP_RATE,
-        max_delta=MAX_DELTA
+        max_delta=0.5
     )
 
     target_pdb_path = "seq_output/sequence_source.pdb"

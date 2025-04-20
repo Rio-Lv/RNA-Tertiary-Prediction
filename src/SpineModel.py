@@ -265,6 +265,8 @@ class SpineModel(nn.Module):
                 f"Sequence length ({len(seq_str)}) must be at least {self.sequence_size}"
             )
 
+        final_coords = []
+        final_recording = []
         r = 5
         last_coord = Vector(0, 0, 0)
         start_coords = [last_coord]
@@ -284,7 +286,6 @@ class SpineModel(nn.Module):
             input_coords=start_coords,
             target_matrix=start_distance_matrix,
             max_delta=max_delta,
-            iterations_per_residue=iterations_per_residue,
             temperature=TEMPERATURE,
             active_keep_rate=ACITVE_KEEP_RATE
         )
