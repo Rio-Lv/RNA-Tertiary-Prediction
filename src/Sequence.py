@@ -23,14 +23,14 @@ from SpineModel import SpineModel
 os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
 # ====== CONSTANTS ======
-SEQUENCE_SIZE = 100
+SEQUENCE_SIZE = 200
 
 N_SEQUENCES = 50
 # N_NEAREST_NEIGBORS = 30  # If using n nearest neighbors for adjustment
 # MAX_DISTANCE = 32  # If using neightbor within distance for adjustment
 # USE_NEIGHBORS = False  # If using n nearest neighbors for adjustment
 
-ITERATIONS = 5000
+ITERATIONS = 2000
 ITERATIONS_PER_RESIDUE = (ITERATIONS//SEQUENCE_SIZE)//2 
 TEMPERATURE = 0.1
 MAX_DELTA = 0.5
@@ -39,15 +39,15 @@ LABELS_PATH = "data/train_labels.csv"
 SEQUENCES_PATH = "data/train_sequences.csv"
 SEQUENCE_INDEX = 868
 
-MAX_SPINE_SPACE = 5  # Maximum distance between two points in the spine
+# MAX_SPINE_SPACE = 5  # Maximum distance between two points in the spine
 
 OPEN_PLOT = True  # If True, will open a plot window for each sequence
 GRAVITY = 0.001
 VIDEO_SPEED = ITERATIONS // 200  # Speed of the video in frames per second
 
 DIR_BIAS_X = 1  # Bias for the x direction in random walk
-DELTA_DROP_RATE = 0.95 # Rate at which deltas are dropped
-MAX_INDEX_DIFF = SEQUENCE_SIZE
+ACTIVE_KEEP_RATE = 0.97 # Rate at which deltas are dropped
+MAX_INDEX_DIFF = 200
 # NOISY_SOURCE_MATRIX = True
 
 
@@ -180,7 +180,7 @@ class Sequence:
             input_coords=input_coords,
             target_matrix=self.distance_matrix,
             temperature=TEMPERATURE,
-            delta_drop_rate=DELTA_DROP_RATE,
+            active_keep_rate=ACTIVE_KEEP_RATE,
             max_delta=MAX_DELTA,
             iterations_per_residue=ITERATIONS_PER_RESIDUE,
             max_index_diff=MAX_INDEX_DIFF,
@@ -246,7 +246,7 @@ class Sequence:
     #         coords=self.coords,
     #         target_matrix=self.distance_matrix,
     #         temperature=TEMPERATURE,
-    #         delta_drop_rate=DELTA_DROP_RATE,
+    #         delta_drop_rate=ACTIVE_KEEP_RATE,
     #         max_delta=MAX_DELTA,
     #         iterations_per_residue=ITERATIONS_PER_RESIDUE,
     #         max_index_diff=MAX_INDEX_DIFF,

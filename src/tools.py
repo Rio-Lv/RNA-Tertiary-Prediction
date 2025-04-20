@@ -104,6 +104,22 @@ def coord_to_distance_matrix(coord_matrix: Tensor) -> Tensor:
     return dist
 
 
+def plot_distance_heatmap(
+    distance_matrix: torch.Tensor, title: str = "Distance matrix"
+) -> None:
+    """Plot a square heat-map for a (LxL) distance matrix."""
+    plt.figure()
+    plt.imshow(distance_matrix.cpu(), aspect="equal")
+    plt.colorbar(label="Distance")
+    plt.title(title)
+    plt.xlabel("Residue index")
+    plt.ylabel("Residue index")
+    plt.tight_layout()
+    plt.show()
+
+
+
+
 def compute_delta_matrix(
     coord_matrix: Tensor,
     target_distance_matrix: Tensor,
@@ -132,29 +148,27 @@ def apply_heat(distance_matrix: Tensor, temperature: float) -> Tensor:
     return distance_matrix
 
 
-def drop_random(deltas: Tensor, drop_rate: float) -> Tensor:
+def drop_random(active_distances: Tensor, keep_rate: float) -> Tensor:
     """
     To be used on deltas which is of shape [N, N, 3].
     Randomly drop elements from a tensor with a given probability.
     """
-    mask = torch.rand(deltas.shape) < drop_rate
-    deltas = deltas * mask
-    return deltas
+    mask = torch.rand(active_distances.shape) < keep_rate
+    active_distances = active_distances * mask
+    return active_distances
 
-
-def drop_index_diff(deltas: Tensor, max_index_diff: int) -> Tensor:
+def create_index_drop_mask(
+    distance_matrix: Tensor, max_index_diff: int
+) -> Tensor:
     """
-    To be used on deltas which is of shape [N, N, 3].
-    Randomly drop elements from a tensor with a given probability.
+    Create a mask to drop elements from the distance matrix based on index difference.
     """
-    mask = torch.zeros(deltas.shape)
-    for i in range(deltas.shape[0]):
-        for j in range(deltas.shape[1]):
-            if abs(i - j) < max_index_diff:
-                mask[i][j] = 1
-    deltas = deltas * mask
-    return deltas
-
+    mask = torch.ones_like(distance_matrix, dtype=torch.bool)
+    for i in range(distance_matrix.shape[0]):
+        for j in range(distance_matrix.shape[1]):
+            if abs(i - j) > max_index_diff:
+                mask[i, j] = False
+    return mask
 
 def sub_next_coord(active_coord_matrix: Tensor) -> Tensor:
     """
@@ -168,7 +182,7 @@ def sub_next_coord(active_coord_matrix: Tensor) -> Tensor:
     # r = 3.5 # distance between atoms
     r = 0.1
     # Calculate the vector from coord 1 to coord 2
-    vector = active_coord_matrix[2] - active_coord_matrix[1]
+    vector = active_coord_matrix[-2] - active_coord_matrix[-1]
     dist = torch.norm(vector)
     uv = vector / (dist + EPS)  # unit vector
     # Subtract the vector from coord 1 to get coord 0
@@ -184,7 +198,7 @@ def adjust_coords(
     input_coords: list[Vector],
     target_matrix: Tensor,
     temperature: float,
-    delta_drop_rate: float,
+    active_keep_rate: float,
     max_delta: float,
     iterations_per_residue: int,
     max_index_diff: int,
@@ -200,6 +214,9 @@ def adjust_coords(
     coord_matrix = coords_list_to_matrix(input_coords)  # Changes every iteration
     recording = []
     length, _ = coord_matrix.shape
+    index_drop_mask = create_index_drop_mask(
+        distance_matrix=target_matrix, max_index_diff=max_index_diff
+    )
 
     for curr in range(n_iter):
 
@@ -212,20 +229,21 @@ def adjust_coords(
         print(f"Iteration {curr+1}/{n_iter}")
 
         # 1. Initiate Target Structure Via Distance Matrix
-        active_target_distance_matrix = target_matrix.clone()[:max_index, :max_index]
+        active_distance_matrix = target_matrix.clone()[:max_index, :max_index]
+        active_distance_matrix = active_distance_matrix * index_drop_mask[:max_index, :max_index]
         # 2. Apply Heat to the Structure.
-        active_target_distance_matrix = apply_heat(
-            active_target_distance_matrix, temperature
+        active_distance_matrix = apply_heat(
+            active_distance_matrix, temperature
         )
+        # 2.1. Drop some deltas to simulate imperfect information
+        active_distance_matrix = drop_random(active_distance_matrix, keep_rate=active_keep_rate)
+
         # 3. Compute Deltas Based on Target Distance Matrix
         deltas = compute_delta_matrix(
             coord_matrix=active_coord_matrix,
-            target_distance_matrix=active_target_distance_matrix,
+            target_distance_matrix=active_distance_matrix,
             max_delta=max_delta,
         )
-        # 3.1. Drop some deltas to simulate imperfect information
-        deltas = drop_random(deltas, drop_rate=delta_drop_rate)
-        deltas = drop_index_diff(deltas, max_index_diff=max_index_diff)
         # 4. Add the deltas to the coordinates.
         coord_matrix[:max_index, :max_index] += deltas
         # 5. Record the current state.
