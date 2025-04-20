@@ -501,12 +501,12 @@ def analyse_one():
 
 if __name__ == "__main__":
     # ================ Test 1 ==============
-    print("Testing one sequence")
-    analyse_one()
+    # print("Testing one sequence")
+    # analyse_one()
     # =============== Test 2 ==============
     
     # print("Testing multiple sequence lengths scores")
-    # analyse_scores(50)
+    analyse_scores(50)
     
     
     # =============== Test 3 ==============
