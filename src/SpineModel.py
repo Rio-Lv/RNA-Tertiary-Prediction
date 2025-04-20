@@ -286,7 +286,7 @@ class SpineModel(nn.Module):
                     temperature=0.1,
                     active_keep_rate=1,
                     max_delta=0.5,
-                    adjust_last=False,
+                    # adjust_last=False,
                 )
                 full_recording += recording
                 

@@ -14,7 +14,7 @@ import time
 import matplotlib.animation as animation
 
 EPS = 1e-8
-VIDEO_PADDING = 1.5
+VIDEO_PADDING = 0.3
 MIN_BOUNCE_DISTANCE = 5  # Minimum distance between atoms after bounce
 
 # ====== TYPES ======
@@ -264,7 +264,7 @@ def adjust_coords(
     active_keep_rate: float,
     max_delta: float,
     iterations_per_residue: int = None,
-    adjust_last: bool = False,
+    # adjust_last: bool = False,
 ) -> Tuple[list[Vector], list[Tensor]]:
     """
     Make input_coords match the distance matrix via simulation.
@@ -289,7 +289,7 @@ def adjust_coords(
         if len(active_coord_matrix) < length:
             active_coord_matrix = sub_next_coord(active_coord_matrix)
 
-        if curr % 500 == 0:
+        if curr % 500 == 0 and curr >= 500:
             print(f"Iteration {curr }/{n_iter}")
 
         # 1. Initiate Target Structure Via Distance Matrix
@@ -315,10 +315,10 @@ def adjust_coords(
         active_coord_matrix = atomic_bounce(
             active_coord_matrix, max_delta, min_distance=MIN_BOUNCE_DISTANCE
         )
-        if adjust_last:
-            coord_matrix[max_index, max_index] = active_coord_matrix[-1, -1]
-        else:
-            coord_matrix[:max_index, :max_index] = active_coord_matrix
+        # if adjust_last:
+        #     coord_matrix[max_index, max_index] = active_coord_matrix[-1, -1]
+        # else:
+        coord_matrix[:max_index, :max_index] = active_coord_matrix
         # 6. Record the current state.
         recording.append(active_coord_matrix.clone())
 
