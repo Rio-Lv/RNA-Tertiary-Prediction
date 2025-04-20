@@ -1,5 +1,10 @@
+import os
+import time
+import subprocess
+import re
+from typing import Optional
 from torch import Tensor
-import torch
+import torch 
 import numpy as np
 from scipy.spatial.transform import Rotation as R
 import matplotlib
@@ -9,7 +14,8 @@ import time
 import matplotlib.animation as animation
 
 EPS = 1e-8
-
+VIDEO_PADDING = 1.5
+MIN_BOUNCE_DISTANCE = 5  # Minimum distance between atoms after bounce
 
 # ====== TYPES ======
 class Vector:
@@ -23,7 +29,7 @@ class Vector:
         self.z = z
 
     def copy(self):
-        return (Vector(self.x, self.y, self.z),)
+        return Vector(self.x, self.y, self.z)
 
     def add(self, vector: "Vector"):
         self.x += vector.x
@@ -258,6 +264,7 @@ def adjust_coords(
     active_keep_rate: float,
     max_delta: float,
     iterations_per_residue: int = None,
+    adjust_last: bool = False,
 ) -> Tuple[list[Vector], list[Tensor]]:
     """
     Make input_coords match the distance matrix via simulation.
@@ -282,7 +289,8 @@ def adjust_coords(
         if len(active_coord_matrix) < length:
             active_coord_matrix = sub_next_coord(active_coord_matrix)
 
-        print(f"Iteration {curr+1}/{n_iter}")
+        if curr % 500 == 0:
+            print(f"Iteration {curr }/{n_iter}")
 
         # 1. Initiate Target Structure Via Distance Matrix
         active_distance_matrix = target_matrix.clone()[:max_index, :max_index]
@@ -302,11 +310,16 @@ def adjust_coords(
         )
         # 4. Add the deltas to the coordinates.
         active_coord_matrix[:max_index, :max_index] += deltas
+        
+        # 5. Apply atomic bounce to the coordinates.
         active_coord_matrix = atomic_bounce(
-            active_coord_matrix, max_delta, min_distance=3.5
+            active_coord_matrix, max_delta, min_distance=MIN_BOUNCE_DISTANCE
         )
-        coord_matrix[:max_index, :max_index] = active_coord_matrix
-        # 5. Record the current state.
+        if adjust_last:
+            coord_matrix[max_index, max_index] = active_coord_matrix[-1, -1]
+        else:
+            coord_matrix[:max_index, :max_index] = active_coord_matrix
+        # 6. Record the current state.
         recording.append(active_coord_matrix.clone())
 
     # Update self.coords from the coord_matrix.
@@ -402,6 +415,24 @@ def align(input_coords: list[Vector], target_coords: list[Vector]):
     # Convert back to Vectors
     return [Vector(x, y, z) for x, y, z in final_pts]
 
+def mirror(coords: list[Vector], axis: str = "x") -> list[Vector]:
+    """
+    Mirror the coordinates across a specified axis.
+    :param coords: List of Vector objects to be mirrored.
+    :param axis: Axis to mirror across ('x', 'y', or 'z').
+    :return: List of mirrored Vector objects.
+    """
+    mirrored_coords = []
+    for coord in coords:
+        if axis == "x":
+            mirrored_coords.append(Vector(-coord.x, coord.y, coord.z))
+        elif axis == "y":
+            mirrored_coords.append(Vector(coord.x, -coord.y, coord.z))
+        elif axis == "z":
+            mirrored_coords.append(Vector(coord.x, coord.y, -coord.z))
+        else:
+            raise ValueError("Invalid axis. Choose 'x', 'y', or 'z'.")
+    return mirrored_coords
 
 def plot_coords_list(coords_list: list[list[Vector]], set_names: list[str] = None):
     """
@@ -468,7 +499,6 @@ def plot_coords_list(coords_list: list[list[Vector]], set_names: list[str] = Non
 
     plt.show()
 
-
 def create_video(
     target_coords: list[Vector],
     recording: list[Tensor],
@@ -491,8 +521,8 @@ def create_video(
     # Downsample the recording so that only every Nth frame is rendered.
     recording_coords = recording_coords
     num_frames = len(recording_coords)
-
-    # Compute bounding box limits based on the original coordinates with 25% padding.
+    # Compute bounding box limits based on the original coordinates with 50% padding.
+    
     x_orig_vals = [coord.x for coord in target_coords]
     y_orig_vals = [coord.y for coord in target_coords]
     z_orig_vals = [coord.z for coord in target_coords]
@@ -506,9 +536,9 @@ def create_video(
     y_range = y_max - y_min if (y_max - y_min) != 0 else 1.0
     z_range = z_max - z_min if (z_max - z_min) != 0 else 1.0
 
-    x_pad = 0.25 * x_range
-    y_pad = 0.25 * y_range
-    z_pad = 0.25 * z_range
+    x_pad = VIDEO_PADDING * x_range
+    y_pad = VIDEO_PADDING * y_range
+    z_pad = VIDEO_PADDING * z_range
 
     x_lim = (x_min - x_pad, x_max + x_pad)
     y_lim = (y_min - y_pad, y_max + y_pad)
@@ -612,3 +642,46 @@ def create_video(
 
     elapsed_time = time.time() - start_time
     print(f"Video saved to {save_path} in {elapsed_time:.2f} seconds")
+
+
+# ============= Compute Similarity =============
+def compute_similarity(path_1: str, path_2: str, timeout: float = 3.0) -> Optional[float]:
+    """
+    Run USalign on two PDB files, capture its output, and return the TM-score
+    normalized by the length of Structure_1.
+
+    :param path_1: Path to Structure_1 PDB.
+    :param path_2: Path to Structure_2 PDB.
+    :param timeout: Max seconds to wait for files to exist.
+    :return: TM-score (float) or None if not found / on error.
+    """
+    # wait for files up to `timeout`
+    start = time.time()
+    while not (os.path.exists(path_1) and os.path.exists(path_2)):
+        if time.time() - start > timeout:
+            print(f"Error: files not found within {timeout}s: {path_1}, {path_2}")
+            return None
+        time.sleep(0.1)
+
+    # run USalign and capture output
+    try:
+        result = subprocess.run(
+            ["../USalign/USalign", path_1, path_2],
+            capture_output=True,
+            text=True
+        )
+    except Exception as e:
+        print(f"Error running USalign: {e}")
+        return None
+
+    stdout = result.stdout
+
+    # regex to find the TM-score normalized by Structure_1
+    m = re.search(
+        r"TM-score=\s*([0-9]+(?:\.[0-9]+)?)\s*\(normalized by length of Structure_1",
+        stdout
+    )
+    if not m:
+        print("TM-score (normalized by Structure_1) not found in USalign output.")
+        return None
+    return float(m.group(1))

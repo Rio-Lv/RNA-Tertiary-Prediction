@@ -226,12 +226,12 @@ class SpineModel(nn.Module):
             seq_onehot: Tensor = encode_str(seq_slice)
             dist_mat: Tensor = self.forward(seq_onehot.unsqueeze(0)).squeeze(0)
             dist_mat = dist_mat.view(self.sequence_size, self.sequence_size)
-            print(" DIST MATRIX window")
-            print(dist_mat)
-            print(dist_mat.shape)
-            print(" DISTANCE MATRIX full")
-            print(distance_matrix)
-            print(distance_matrix.shape)
+            # print(" DIST MATRIX window")
+            # print(dist_mat)
+            # print(dist_mat.shape)
+            # print(" DISTANCE MATRIX full")
+            # print(distance_matrix)
+            # print(distance_matrix.shape)
             distance_matrix[min_index:max_index, min_index:max_index] += dist_mat
 
             count[min_index:max_index, min_index:max_index] += 1
@@ -256,43 +256,40 @@ class SpineModel(nn.Module):
         max_delta: float = MAX_DELTA,
     ) -> Tuple[List[Vector], List[Vector]]:
         """
-        1. first SPINE_WINDOW_SIZE residues are placed 3D random walk
-        2. run adjustent to get more feasible shape
-        3. iterate the rest of the sequence
+        1. Put down first
         """
-        if len(seq_str) < self.sequence_size:
-            raise ValueError(
-                f"Sequence length ({len(seq_str)}) must be at least {self.sequence_size}"
-            )
-
-        final_coords = []
-        final_recording = []
-        r = 5
-        last_coord = Vector(0, 0, 0)
-        start_coords = [last_coord]
-        for i in range(len(seq_str) - 1):
-
-            last_coord = Vector(
-                last_coord.x + r,
-                random.uniform(-0.01, 0.01),
-                random.uniform(-0.01, 0.01),
-            )
-            start_coords.append(last_coord)
-
-        # part 1, initial coords
-        start_distance_matrix = self.construct_distance_matrix(seq_str)
-        coords, recording = adjust_coords(
-            n_iter=n_iter,
-            input_coords=start_coords,
-            target_matrix=start_distance_matrix,
-            max_delta=max_delta,
-            temperature=TEMPERATURE,
-            active_keep_rate=ACITVE_KEEP_RATE
-        )
-
-        # final_coords += coords
-        # final_recording += recording
-
+        coords:list[Vector] = []
+        full_recording:list[Tensor] = []
+        distance_matrix = self.construct_distance_matrix(seq_str)
+        for i in range(len(seq_str)):
+            if i < SPINE_WINDOW_SIZE:
+                coords.append(
+                    Vector(
+                        random.uniform(-1, 1),
+                        random.uniform(-1, 1),
+                        random.uniform(-1, 1),
+                    )
+                )
+            else:
+                coord = coords[-1].copy()
+                noise = Vector(
+                    random.uniform(-1, 1),
+                    random.uniform(-1, 1),
+                    random.uniform(-1, 1),
+                )
+                coord.add(noise)
+                coords.append(coord)
+                coords, recording = adjust_coords(
+                    n_iter=10,
+                    input_coords=coords,
+                    target_matrix=distance_matrix,
+                    temperature=0.1,
+                    active_keep_rate=1,
+                    max_delta=0.5,
+                    adjust_last=False,
+                )
+                full_recording += recording
+                
         return coords, recording
 
 
@@ -365,7 +362,7 @@ if __name__ == "__main__":
         target_coords=spine_coords,
         recording=recording,
         save_path="videos/SpineModel.mp4",
-        speed=len(recording) // 200,
+        speed=5,
     )
 
     plot_coords_list([spine_coords], ["Spine Coordinates"])

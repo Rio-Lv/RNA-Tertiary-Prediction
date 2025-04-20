@@ -476,19 +476,6 @@ def save_pdb(pdb: str, filename: str):
         f.write(pdb)
 
 
-# ============= Compute Similarity =============
-def compute_similarity(path_1: str, path_2: str):
-    # use USalign to compute similarity
-    # loop check if file exists max 3s
-    start = time.time()
-    while not os.path.exists(path_1) or not os.path.exists(path_2):
-        if time.time() - start > 3:
-            break
-    if os.path.exists(path_1) and os.path.exists(path_2):
-        os.system(f"../USalign/USalign {path_1} {path_2}")
-    else:
-        print("Files not found")
-    return
 
 
 # ============= Main/Test=============

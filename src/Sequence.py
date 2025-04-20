@@ -13,7 +13,7 @@ import math
 from scipy.spatial.transform import Rotation as R
 import numpy as np
 import time
-from _deprecated_tools import compute_similarity
+
 from torch.utils.data import DataLoader, TensorDataset, random_split
 
 from torch.optim import Adam
@@ -24,30 +24,38 @@ from SpineModel import SpineModel
 os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
 # ====== CONSTANTS ======
-SEQUENCE_SIZE = 200
+SEQUENCE_SIZE = 350
 
 N_SEQUENCES = 50
 # N_NEAREST_NEIGBORS = 30  # If using n nearest neighbors for adjustment
 # MAX_DISTANCE = 32  # If using neightbor within distance for adjustment
 # USE_NEIGHBORS = False  # If using n nearest neighbors for adjustment
 
-ITERATIONS = 2000
-ITERATIONS_PER_RESIDUE = (ITERATIONS // SEQUENCE_SIZE) // 2
-TEMPERATURE = 0.1
+ITERATIONS = 3000
+ITERATIONS_SPINE = 3000
+
+ITERATIONS_PER_RESIDUE = 4
+ITERATIONS_PER_RESIDUE_SPINE = 4
+
 MAX_DELTA = 0.5
+MAX_DELTA_SPINE = 0.5
+
+TEMPERATURE = 3
 
 LABELS_PATH = "data/train_labels.csv"
 SEQUENCES_PATH = "data/train_sequences.csv"
+
 SEQUENCE_INDEX = 868
 
 # MAX_SPINE_SPACE = 5  # Maximum distance between two points in the spine
 
 OPEN_PLOT = True  # If True, will open a plot window for each sequence
 GRAVITY = 0.001
-VIDEO_SPEED = ITERATIONS // 200  # Speed of the video in frames per second
+
+VIDEO_SPEED = ITERATIONS // 100  # Speed of the video in frames per second
 
 DIR_BIAS_X = 1  # Bias for the x direction in random walk
-ACTIVE_KEEP_RATE = 1  # Rate at which deltas are dropped
+ACTIVE_KEEP_RATE = 0.2  # Rate at which deltas are dropped
 MAX_INDEX_DIFF = 200
 # NOISY_SOURCE_MATRIX = True
 
@@ -213,205 +221,6 @@ class Sequence:
 
         plot_coords_list([target_coords, coords_adjusted], ["Original", "Adjusted"])
 
-    # def _test_adjust_coords_video(
-    #     self,
-    #     iterations: int,
-    #     speed: int,
-    #     video_filename="seq_output/adjustment.mp4",
-    #     interval=33,
-    #     final_coords=list[Vector],
-    #     recording=list[Tensor],
-    # ):
-    #     """
-    #     Adjust the coordinates to match the distance matrix and output a video
-    #     showing the adjustment process over multiple iterations.
-
-    #     The original coordinates are shown in gray while the adjusted coordinates
-    #     are plotted in red.
-
-    #     Parameters:
-    #     video_filename (str): The filename of the output video.
-    #     iterations (int): Total number of adjustment iterations.
-    #     speed (int): Render every Nth frame (downsampling factor for recording).
-    #     interval (int): Delay between frames in milliseconds.
-    #     """
-    #     print("Starting video generation...")
-    #     start_time = time.time()
-    #     self._coords_to_noise()
-
-    #     # Use Spine model for initial coordinates
-    #     spine_model = SpineModel()
-    #     # Adjust the coordinates and record the intermediate states.
-    #     coords_adjusted, recording = adjust_coords(
-    #         n_iter=iterations,
-    #         coords=self.coords,
-    #         target_matrix=self.distance_matrix,
-    #         temperature=TEMPERATURE,
-    #         delta_drop_rate=ACTIVE_KEEP_RATE,
-    #         max_delta=MAX_DELTA,
-    #         iterations_per_residue=ITERATIONS_PER_RESIDUE,
-    #         max_index_diff=MAX_INDEX_DIFF,
-    #     )
-
-    #     # Store the original coordinates (as a list of Vectors).
-    #     original_coords: list[Vector] = self.source_coords
-
-    #     # Convert each recorded tensor (shape: [N, 3]) into a list of Vector objects.
-    #     recording_coords: list[list[Vector]] = []
-    #     for frame_tensor in recording:
-    #         frame_coords = [
-    #             Vector(coord[0].item(), coord[1].item(), coord[2].item())
-    #             for coord in frame_tensor
-    #         ]
-    #         recording_coords.append(frame_coords)
-
-    #     # Downsample the recording so that only every Nth frame is rendered.
-    #     recording_coords = recording_coords[::speed]
-    #     num_frames = len(recording_coords)
-
-    #     # Compute bounding box limits based on the original coordinates with 25% padding.
-    #     x_orig_vals = [coord.x for coord in original_coords]
-    #     y_orig_vals = [coord.y for coord in original_coords]
-    #     z_orig_vals = [coord.z for coord in original_coords]
-
-    #     x_min, x_max = min(x_orig_vals), max(x_orig_vals)
-    #     y_min, y_max = min(y_orig_vals), max(y_orig_vals)
-    #     z_min, z_max = min(z_orig_vals), max(z_orig_vals)
-
-    #     # Ensure nonzero ranges.
-    #     x_range = x_max - x_min if (x_max - x_min) != 0 else 1.0
-    #     y_range = y_max - y_min if (y_max - y_min) != 0 else 1.0
-    #     z_range = z_max - z_min if (z_max - z_min) != 0 else 1.0
-
-    #     x_pad = 0.25 * x_range
-    #     y_pad = 0.25 * y_range
-    #     z_pad = 0.25 * z_range
-
-    #     x_lim = (x_min - x_pad, x_max + x_pad)
-    #     y_lim = (y_min - y_pad, y_max + y_pad)
-    #     z_lim = (z_min - z_pad, z_max + z_pad)
-
-    #     # Create a 3D plot for the animation.
-    #     fig = plt.figure()
-    #     ax = fig.add_subplot(111, projection="3d")
-
-    #     def init():
-    #         ax.clear()
-    #         ax.set_xlim(x_lim)
-    #         ax.set_ylim(y_lim)
-    #         ax.set_zlim(z_lim)
-    #         # Plot original coordinates.
-    #         x_orig = [coord.x for coord in original_coords]
-    #         y_orig = [coord.y for coord in original_coords]
-    #         z_orig = [coord.z for coord in original_coords]
-    #         ax.scatter(x_orig, y_orig, z_orig, color="gray", s=100, label="Original")
-    #         ax.plot(
-    #             x_orig,
-    #             y_orig,
-    #             z_orig,
-    #             color="gray",
-    #             alpha=0.7,
-    #             linewidth=2,
-    #             label="Original Path",
-    #         )
-    #         ax.set_xlabel("X")
-    #         ax.set_ylabel("Y")
-    #         ax.set_zlabel("Z")
-    #         ax.set_title("Adjustment Process")
-    #         return []
-
-    #     def update(frame):
-    #         # Print progress every 10 frames.
-    #         if (frame + 1) % 10 == 0 or frame == 0:
-    #             print(f"Processing frame {frame+1}/{num_frames}")
-
-    #         # Optionally, align the current recorded frame to the original coordinates.
-    #         current_coords = align(recording_coords[frame], original_coords)
-    #         x_adj = [coord.x for coord in current_coords]
-    #         y_adj = [coord.y for coord in current_coords]
-    #         z_adj = [coord.z for coord in current_coords]
-
-    #         ax.clear()
-    #         ax.set_xlim(x_lim)
-    #         ax.set_ylim(y_lim)
-    #         ax.set_zlim(z_lim)
-
-    #         # Plot the static original coordinates.
-    #         x_orig = [coord.x for coord in original_coords]
-    #         y_orig = [coord.y for coord in original_coords]
-    #         z_orig = [coord.z for coord in original_coords]
-    #         ax.scatter(x_orig, y_orig, z_orig, color="gray", s=100, label="Original")
-    #         ax.plot(
-    #             x_orig,
-    #             y_orig,
-    #             z_orig,
-    #             color="gray",
-    #             alpha=0.7,
-    #             linewidth=2,
-    #             label="Original Path",
-    #         )
-    #         # Plot the adjusted (dynamic) coordinates.
-    #         ax.scatter(x_adj, y_adj, z_adj, color="red", s=100, label="Adjusted")
-    #         ax.plot(
-    #             x_adj,
-    #             y_adj,
-    #             z_adj,
-    #             color="red",
-    #             alpha=0.7,
-    #             linewidth=2,
-    #             label="Adjusted Path",
-    #         )
-
-    #         ax.set_xlabel("X")
-    #         ax.set_ylabel("Y")
-    #         ax.set_zlabel("Z")
-    #         ax.set_title(f"Adjustment Frame {frame+1}")
-    #         ax.legend(loc="upper right")
-    #         return []
-
-    #     # Create the animation object using the decimated recording.
-    #     ani = animation.FuncAnimation(
-    #         fig,
-    #         update,
-    #         frames=range(num_frames),
-    #         init_func=init,
-    #         interval=interval,
-    #         repeat=False,
-    #     )
-
-    #     # Save the video using the FFmpeg writer.
-    #     Writer = animation.writers["ffmpeg"]
-    #     writer = Writer(
-    #         fps=1000 // interval, metadata=dict(artist="Your Name"), bitrate=1800
-    #     )
-    #     ani.save(video_filename, writer=writer)
-    #     plt.close(fig)
-
-    #     elapsed_time = time.time() - start_time
-    #     print(f"Video saved to {video_filename} in {elapsed_time:.2f} seconds")
-
-    #     gen_path = "seq_output/seq_generated.pdb"
-    #     target_path = "seq_output/seq_target.pdb"
-
-    #     self.to_pdb(
-    #         coords_adjusted,
-    #         self.seq_str,
-    #         save_path=gen_path,
-    #     )
-    #     self.to_pdb(
-    #         self.source_coords,
-    #         self.seq_str,
-    #         save_path=target_path,
-    #     )
-
-    #     self.compute_similarity_us_align(
-    #         gen_path=gen_path,
-    #         target_path=target_path,
-    #     )
-
-    #     if OPEN_PLOT:
-    #         plot_coords_list([original_coords, self.coords], ["Original", "Adjusted"])
-
 
 # ====== DATA PPEPERATION ======
 class SequenceDataset:
@@ -523,72 +332,153 @@ class SequenceDataset:
 
 # ======== MODELS ==========
 
+
+def analyse_scores(N: int):
+    seq_sizes = []
+    scores = []
+    mirrored_scores = []
+    for iter in range(N):
+        seq_size = random.randint(30, 300)
+        seq_sizes.append(seq_size)
+        # Test the Sequence Dataset class
+        seq_dataset = SequenceDataset(n_sequences=1, sequence_size=seq_size)
+        print(len(seq_dataset.source_sequences))
+        # Initialize a real sequence (Distance Matrix Assigned)
+        seq = seq_dataset.get_random_sequence()
+        # seq.test_adjust_coords_video()
+        # 1. Replace Coordinate with Random Noise
+        # seq._coords_to_noise()
+        # 1.2 Replace Coordinate with Contrsucted Spine Model
+        spine_model = SpineModel()
+        spine_coords, _ = spine_model.construct_spine_coords(
+            n_iter=ITERATIONS_SPINE,
+            iterations_per_residue=ITERATIONS_PER_RESIDUE_SPINE,
+            seq_str=seq.seq_str,
+            max_delta=MAX_DELTA_SPINE,
+        )
+        spine_matrix = coord_to_distance_matrix(coords_list_to_matrix(spine_coords))
+        # print("Spine Matrix: ", spine_matrix)
+
+        target_matrix = seq.distance_matrix.clone()
+        # print("Target Matrix: ", target_matrix)
+
+        # swap target matrix with spine matrix whee abs(i-j) < 5
+        for i in range(len(target_matrix)):
+            for j in range(len(target_matrix)):
+                if abs(i - j) < 5:
+                    target_matrix[i][j] = spine_matrix[i][j]
+
+        adjusted_coords, _ = adjust_coords(
+            n_iter=ITERATIONS,
+            input_coords=spine_coords,
+            target_matrix=target_matrix,
+            temperature=TEMPERATURE,
+            active_keep_rate=ACTIVE_KEEP_RATE,
+            iterations_per_residue=ITERATIONS_PER_RESIDUE_SPINE,
+            max_delta=MAX_DELTA,
+        )
+        target_pdb_path = "seq_output/sequence_source.pdb"
+        generated_pdb_path = "seq_output/sequence_generatored.pdb"
+        mirrored_pdb_path = "seq_output/sequence_mirrored.pdb"
+        
+        Sequence.to_pdb(
+            coords=seq.coords, seq_str=seq.seq_str, save_path=target_pdb_path
+        )
+        Sequence.to_pdb(
+            coords=adjusted_coords, seq_str=seq.seq_str, save_path=generated_pdb_path
+        )
+        Sequence.to_pdb(
+            coords=mirror(adjusted_coords),
+            seq_str=seq.seq_str,
+            save_path=mirrored_pdb_path,
+        )
+        score = compute_similarity(path_1=generated_pdb_path, path_2=target_pdb_path)
+        mirror_score = compute_similarity(
+            path_1=mirrored_pdb_path, path_2=target_pdb_path
+        )
+
+        print(
+            f"============ ANALYSED {iter+1} / {N} --- Score {score} --- Mirror Score {mirror_score} ---- ============"
+        )
+        scores.append(score)
+        mirrored_scores.append(mirror_score)
+
+    # sort both by seq_sizes
+    seq_sizes, scores = zip(*sorted(zip(seq_sizes, scores), key=lambda x: x[0]))
+    [
+        print(f"Sequence Size: {seq_sizes[i]}, Score: {scores[i]}, Mirror Score: {mirrored_scores[i]}")
+        for i in range(len(seq_sizes))
+    ]
+    valid_scores = [s for s in scores if s is not None]
+    if valid_scores:  # avoid ZeroDivisionError
+        average = sum(valid_scores) / len(valid_scores)
+        print(f"Average TM0score: {average:.5f}")
+    else:
+        print("No valid scores were returned.")
+
+
 if __name__ == "__main__":
-
-    print("Starting Sequence Class Test")
-
-    # Test Sequence from Seq String
-    # seq = Sequence("ACGTAACGUUU")
-    # seq.test_adjust_coords()
-    # seq.test_adjust_coords_video()
-    # print(seq)
-
     # ============ Test 1 ==============
     # Test the Sequence Dataset class
-    seq_dataset = SequenceDataset(n_sequences=N_SEQUENCES, sequence_size=SEQUENCE_SIZE)
-    print(len(seq_dataset.source_sequences))
-    # Initialize a real sequence (Distance Matrix Assigned)
-    seq = seq_dataset.get_random_sequence()
-    # seq.test_adjust_coords_video()
-    # 1. Replace Coordinate with Random Noise
-    # seq._coords_to_noise()
-    # 1.2 Replace Coordinate with Contrsucted Spine Model
-    spine_model = SpineModel()
-    spine_coords, spine_recording = spine_model.construct_spine_coords(
-        n_iter=SEQUENCE_SIZE*4, iterations_per_residue=4, seq_str=seq.seq_str, max_delta=0.5
-    )
-    spine_matrix = coord_to_distance_matrix(coords_list_to_matrix(spine_coords))
-    print("Spine Matrix: ", spine_matrix)
-    
+    # seq_dataset = SequenceDataset(n_sequences=N_SEQUENCES, sequence_size=SEQUENCE_SIZE)
+    # print(len(seq_dataset.source_sequences))
+    # # Initialize a real sequence (Distance Matrix Assigned)
+    # seq = seq_dataset.get_random_sequence()
+    # # seq.test_adjust_coords_video()
+    # # 1. Replace Coordinate with Random Noise
+    # # seq._coords_to_noise()
+    # # 1.2 Replace Coordinate with Contrsucted Spine Model
+    # spine_model:SpineModel = SpineModel()
+    # spine_coords, spine_recording = spine_model.construct_spine_coords(
+    #     n_iter=ITERATIONS_SPINE,
+    #     iterations_per_residue=ITERATIONS_PER_RESIDUE_SPINE,
+    #     seq_str=seq.seq_str,
+    #     max_delta=MAX_DELTA_SPINE,
+    # )
+    # spine_matrix = coord_to_distance_matrix(coords_list_to_matrix(spine_coords))
+    # # print("Spine Matrix: ", spine_matrix)
 
-    target_matrix = seq.distance_matrix.clone()
-    print("Target Matrix: ", target_matrix)
-    
-    # swap target matrix with spine matrix whee abs(i-j) < 5
-    for i in range(len(target_matrix)):
-        for j in range(len(target_matrix)):
-            if abs(i - j) < 5:
-                target_matrix[i][j] = spine_matrix[i][j]
-    
-    adjusted_coords, recording = adjust_coords(
-        n_iter=ITERATIONS*2,
-        input_coords=spine_coords,
-        target_matrix=target_matrix,
-        temperature=TEMPERATURE,
-        active_keep_rate=ACTIVE_KEEP_RATE,
-        max_delta=0.2
-    )
+    # target_matrix = seq.distance_matrix.clone()
+    # # print("Target Matrix: ", target_matrix)
 
-    target_pdb_path = "seq_output/sequence_source.pdb"
-    generated_pdb_path = "seq_output/sequence_generatored.pdb"
-    Sequence.to_pdb(coords=seq.coords, seq_str=seq.seq_str, save_path=target_pdb_path)
-    Sequence.to_pdb(
-        coords=adjusted_coords, seq_str=seq.seq_str, save_path=generated_pdb_path
-    )
-    Sequence.compute_similarity_us_align(
-        gen_path=generated_pdb_path, target_path=target_pdb_path
-    )
+    # # swap target matrix with spine matrix whee abs(i-j) < 5
+    # for i in range(len(target_matrix)):
+    #     for j in range(len(target_matrix)):
+    #         if abs(i - j) < 5:
+    #             target_matrix[i][j] = spine_matrix[i][j]
 
-    create_video(
-        target_coords=seq.coords,
-        recording=spine_recording + recording,
-        speed=VIDEO_SPEED,
-        save_path="videos/Sequence.mp4",
-        interval=33,
-    )
-    # plot_coords_list([seq.coords, adjusted_coords], ["Original", "Adjusted"])
-    plot_coords_list([seq.coords, adjusted_coords], ["Original", "Spine Contructed"])
+    # adjusted_coords, recording = adjust_coords(
+    #     n_iter=ITERATIONS,
+    #     input_coords=spine_coords,
+    #     target_matrix=target_matrix,
+    #     temperature=TEMPERATURE,
+    #     # iterations_per_residue=ITERATIONS_PER_RESIDUE,
+    #     active_keep_rate=ACTIVE_KEEP_RATE,
+    #     max_delta=MAX_DELTA,
+    # )
 
+    # target_pdb_path = "seq_output/sequence_source.pdb"
+    # generated_pdb_path = "seq_output/sequence_generatored.pdb"
+    # Sequence.to_pdb(coords=seq.coords, seq_str=seq.seq_str, save_path=target_pdb_path)
+    # Sequence.to_pdb(
+    #     coords=adjusted_coords, seq_str=seq.seq_str, save_path=generated_pdb_path
+    # )
+
+    # create_video(
+    #     target_coords=seq.coords,
+    #     recording=spine_recording + recording,
+    #     speed=VIDEO_SPEED,
+    #     save_path="videos/Sequence.mp4",
+    #     interval=33,
+    # )
+    # # plot_coords_list([seq.coords, adjusted_coords], ["Original", "Adjusted"])
+    # plot_coords_list([seq.coords, adjusted_coords], ["Original", "Spine Contructed"])
+
+    # score = compute_similarity(
+    #     path_1=generated_pdb_path, path_2=target_pdb_path
+    # )
+
+    # print(f"SCORE: {score}")
     # =============== Test 2 ==============
     # print("Loading Sequence Dataset")
     # seq_dataset = SequenceDataset(n_sequences=N_SEQUENCES, sequence_size=SEQUENCE_SIZE)
@@ -604,3 +494,7 @@ if __name__ == "__main__":
     # seq._primary_test()
 
     # Sequence.compute_similarity_us_align()
+
+    # =============== Test 3 ==============
+    # print("Testing multiple sequence lengths scores")
+    analyse_scores(50)
