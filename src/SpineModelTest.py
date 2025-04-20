@@ -8,14 +8,14 @@ os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
 if __name__ == "__main__":
     spine_model = SpineModel()
-    seq_dataset = SequenceDataset(n_sequences=5, sequence_size=20)
+    seq_dataset = SequenceDataset(n_sequences=10, sequence_size=5)
 
-    test_seq = seq_dataset.source_sequences[0]
+    test_seq = seq_dataset.source_sequences[7]
     test_seq_str = test_seq.seq_str
 
     source_coords = test_seq.coords
     generated_coords, recording = spine_model.construct_spine_coords(
-        seq_str=test_seq_str, n_iter=1000, max_delta=0.1
+        seq_str=test_seq_str, n_iter=300, max_delta=0.02
     )
     target_pdb_path = "seq_output/spine_test_source.pdb"
     generated_pdb_path = "seq_output/spine_test_generated.pdb"

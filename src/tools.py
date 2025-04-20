@@ -123,13 +123,18 @@ def plot_distance_heatmap(
 def compute_delta_matrix(
     coord_matrix: Tensor,
     target_distance_matrix: Tensor,
-    max_delta: float = 0.01,
+    max_delta: float = 0.1,
 ) -> Tensor:
-    new_distance_matrix = coord_to_distance_matrix(coord_matrix)
-    dist_diff = new_distance_matrix - target_distance_matrix
+    # mask out values where target distance is less than 1
+    mask = target_distance_matrix > 1
+    
+    curr_distance_matrix = coord_to_distance_matrix(coord_matrix)
+    dist_diff = curr_distance_matrix - target_distance_matrix
+    dist_diff = dist_diff * mask
     d_coords = coord_matrix.unsqueeze(0) - coord_matrix.unsqueeze(1)
+    
 
-    u_vecs = d_coords / (new_distance_matrix.unsqueeze(2) + EPS)
+    u_vecs = d_coords / (curr_distance_matrix.unsqueeze(2) + EPS)
     deltas = (u_vecs * dist_diff.unsqueeze(2)).sum(dim=1)
     mags = torch.norm(deltas, dim=1, keepdim=True)
     scale = max_delta / (mags + EPS)
