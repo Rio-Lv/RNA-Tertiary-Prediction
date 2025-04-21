@@ -401,9 +401,11 @@ def analyse_scores(N: int):
     min_scores = [min(scores[i], mirrored_scores[i]) for i in range(len(scores))]
     if valid_scores:  # avoid ZeroDivisionError
         average = sum(valid_scores) / len(valid_scores)
+        average_mirrored = sum(mirrored_scores) / len(mirrored_scores)
         avarage_max = sum(max_scores) / len(max_scores)
         average_min = sum(min_scores) / len(min_scores)
         print(f"Average TM0score: {average:.5f}")
+        print(f"Average mirrored TM0score: {average_mirrored:.5f}")
         print(f"Average max score: {avarage_max:.5f}")
         print(f"Average min score: {average_min:.5f}")
     else:
