@@ -59,7 +59,7 @@ MAX_INDEX_DIFF = 200
 # NOISY_SOURCE_MATRIX = True
 
 SCORES_MIN_SEQ_LEN = 50
-SCORES_MAX_SEQ_LEN = 100
+SCORES_MAX_SEQ_LEN = 300
 
 
 # ====== SEQUENCE ======
@@ -298,14 +298,14 @@ class SequenceDataset:
         self.subset_sequences = sequences
         return sequences
 
-    def get_random_subset(self, retries:int = 0):
+    def get_random_subset(self, retries:int = 0, subset_len:int = SUBSET_LEN):
         if retries > 100:
             return print("retries get random subset exceeded 100")
         random_index = random.randint(0, len(self.subset_sequences) - 1)
         seq = self.subset_sequences[random_index]
         curr_try = 0
         max_tries = 2000
-        while len(seq.coords) < SUBSET_LEN:
+        while len(seq.coords) < subset_len:
             random_index = random.randint(0, len(self.subset_sequences) - 1)
             seq = self.subset_sequences[random_index]
             
@@ -313,7 +313,7 @@ class SequenceDataset:
             if curr_try > max_tries:
                 print("Max tries reached, returning random sequence.")
                 break
-        seq = seq.subset(0, SUBSET_LEN)
+        seq = seq.subset(0, subset_len)
         # ensure seq does not contain nan in vectors
         for i, coord in enumerate(seq.coords):
             if math.isnan(coord.x) or math.isnan(coord.y) or math.isnan(coord.z):
@@ -406,11 +406,12 @@ def analyse_scores(N: int):
         # )
         # seq = seq_dataset.get_sequence(seq_id=random_seq_id)
         
-        
-        seq_dataset = SequenceDataset(n_sequences=N_SEQUENCES, subset_len=SUBSET_LEN)
+        random_subset_len = random.randint(SCORES_MIN_SEQ_LEN,SCORES_MAX_SEQ_LEN)
+        seq_dataset = SequenceDataset(n_sequences=N_SEQUENCES, subset_len=random_subset_len)
+
         # print(len(seq_dataset.subset_sequences))
         # Initialize a real sequence (Distance Matrix Assigned)
-        seq = seq_dataset.get_random_subset()
+        seq = seq_dataset.get_random_subset(subset_len=random_subset_len)
         seq_size = len(seq.seq_str)
 
         target_matrix = seq.distance_matrix.clone()
@@ -566,7 +567,7 @@ if __name__ == "__main__":
     # =============== Test 2 ==============
 
     # print("Testing multiple sequence lengths scores")
-    analyse_scores(20)
+    analyse_scores(100)
 
     # =============== Test 3 ==============
     # print("Loading Sequence Dataset")
