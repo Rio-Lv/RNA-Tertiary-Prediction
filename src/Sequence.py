@@ -497,7 +497,7 @@ def analyse_one():
     # 1.2 Replace Coordinate with Contrsucted Spine Model
 
     target_matrix = seq.distance_matrix.clone()
-
+ 
     spine_model: SpineModel = SpineModel()
     spine_coords, spine_recording = spine_model.construct_spine_coords(
         seq_str=seq.seq_str, target_matrix=target_matrix
