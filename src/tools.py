@@ -563,13 +563,13 @@ def create_video(
         x_orig = [coord.x for coord in target_coords]
         y_orig = [coord.y for coord in target_coords]
         z_orig = [coord.z for coord in target_coords]
-        ax.scatter(x_orig, y_orig, z_orig, color="gray", s=100, label="Original")
+        ax.scatter(x_orig, y_orig, z_orig, color="gray", s=100, label="Original", alpha=0.1)
         ax.plot(
             x_orig,
             y_orig,
             z_orig,
             color="gray",
-            alpha=0.7,
+            alpha=0.1,
             linewidth=2,
             label="Original Path",
         )

@@ -24,7 +24,7 @@ from SpineModel import SpineModel
 os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
 # ====== CONSTANTS ======
-SEQUENCE_SIZE = 250
+SUBSET_LEN = 200
 
 N_SEQUENCES = 50
 # N_NEAREST_NEIGBORS = 30  # If using n nearest neighbors for adjustment
@@ -57,6 +57,9 @@ DIR_BIAS_X = 1  # Bias for the x direction in random walk
 ACTIVE_KEEP_RATE = 0.1  # Rate at which deltas are dropped
 MAX_INDEX_DIFF = 200
 # NOISY_SOURCE_MATRIX = True
+
+SCORES_MIN_SEQ_LEN = 50
+SCORES_MAX_SEQ_LEN = 100
 
 
 # ====== SEQUENCE ======
@@ -228,17 +231,20 @@ class SequenceDataset:
     Output is the distance matrix
     """
 
-    source_sequences: list[Sequence]
+    subset_sequences: list[Sequence]
 
-    def __init__(self, n_sequences: int, sequence_size: int):
+    def __init__(self, n_sequences: int, subset_len: int = None):
         self.n_sequences = n_sequences
-        self.sequence_size = sequence_size
-        self.source_sequences = self.generate_source_sequences()
+        self.labels = pd.read_csv(LABELS_PATH)
+        self.sequences = pd.read_csv(SEQUENCES_PATH)
+        
+        self.subset_len = subset_len
+        self.subset_sequences = self.generate_subset_sequences()
 
-    def generate_source_sequences(self):
-        sequence_size = self.sequence_size
-        label_df = pd.read_csv(LABELS_PATH)
-        sequences_df = pd.read_csv(SEQUENCES_PATH)
+    def generate_subset_sequences(self):
+        subset_len = self.subset_len
+        label_df = self.labels
+        sequences_df = self.sequences
         # using a windowed approach
         sequences = []
         n_sequences = self.n_sequences
@@ -251,12 +257,12 @@ class SequenceDataset:
             seq_id = sequences_df.iloc[i]["target_id"]
             seq_str = sequences_df.iloc[i]["sequence"]
 
-            if len(seq_str) < sequence_size:
+            if len(seq_str) < subset_len:
                 continue
 
-            for i in range(len(seq_str) - sequence_size + 1):
+            for i in range(len(seq_str) - subset_len + 1):
                 start_index = i
-                end_index = start_index + sequence_size
+                end_index = start_index + subset_len
 
                 if len(sequences) >= n_sequences:
                     print("Target number of sequences reached.")
@@ -284,23 +290,62 @@ class SequenceDataset:
                 )
 
                 sequences.append(seq)
-        self.source_sequences = sequences
+        self.subset_sequences = sequences
         return sequences
 
-    def get_random_sequence(self):
-        random_index = random.randint(0, len(self.source_sequences) - 1)
-        seq = self.source_sequences[random_index]
+    def get_random_subset(self):
+        random_index = random.randint(0, len(self.subset_sequences) - 1)
+        seq = self.subset_sequences[random_index]
         curr_try = 0
         max_tries = 2000
-        while len(seq.coords) < SEQUENCE_SIZE:
-            random_index = random.randint(0, len(self.source_sequences) - 1)
-            seq = self.source_sequences[random_index]
+        while len(seq.coords) < SUBSET_LEN:
+            random_index = random.randint(0, len(self.subset_sequences) - 1)
+            seq = self.subset_sequences[random_index]
             curr_try += 1
             if curr_try > max_tries:
                 print("Max tries reached, returning random sequence.")
                 break
-        seq = seq.subset(0, SEQUENCE_SIZE)
+        seq = seq.subset(0, SUBSET_LEN)
         print(f"Random Sequence: {random_index}")
+        return seq
+
+    def get_sequence_ids(
+        self, min_len: int = SCORES_MAX_SEQ_LEN, max_len: int = SCORES_MAX_SEQ_LEN
+    ) -> list[str]:
+        """
+        Get the sequence IDs from the dataset.
+        But only where sequence (str) is within length limits.
+        :return: list of sequence IDs
+        """
+        sequence_ids = []
+        for i in range(len(self.sequences)):
+            seq_str = self.sequences.iloc[i]["sequence"]
+            if len(seq_str) < min_len or len(seq_str) > max_len:
+                continue
+            seq_id = self.sequences.iloc[i]["target_id"]
+            sequence_ids.append(seq_id)
+        return sequence_ids
+
+    def get_sequence(self, seq_id: str):
+        labels = self.labels
+        sequences = self.sequences
+        seq_str = sequences[sequences["target_id"] == seq_id]["sequence"].values[0]
+        seq_labels = labels[labels["ID"].str.contains(seq_id, na=False)]
+        x_1 = seq_labels["x_1"].tolist()
+        y_1 = seq_labels["y_1"].tolist()
+        z_1 = seq_labels["z_1"].tolist()
+        coords = []
+        for x, y, z in zip(x_1, y_1, z_1):
+            coords.append(Vector(x, y, z))
+        seq = Sequence(
+            seq_str=seq_str,
+            seq_id=f"{seq_id}",
+            coords=coords,
+        )
+        seq.coords = coords
+        seq.source_coords = coords
+        seq.coord_matrix = coords_list_to_matrix(seq.coords)
+        seq.distance_matrix = coord_to_distance_matrix(seq.coord_matrix)
         return seq
 
     def get_stats(self):
@@ -337,17 +382,24 @@ def analyse_scores(N: int):
     scores = []
     mirrored_scores = []
     for iter in range(N):
-        seq_size = random.randint(20, 600)
-        seq_sizes.append(seq_size)
-        # Test the Sequence Dataset class
-        seq_dataset = SequenceDataset(n_sequences=1, sequence_size=seq_size)
-        print(len(seq_dataset.source_sequences))
-        # Initialize a real sequence (Distance Matrix Assigned)
-        seq = seq_dataset.get_random_sequence()
-        # seq.test_adjust_coords_video()
-        # 1. Replace Coordinate with Random Noise
-        # seq._coords_to_noise()
-        # 1.2 Replace Coordinate with Contrsucted Spine Model
+        # seq_size = random.randint(SCORES_MIN_SEQ_LEN, SCORES_MAX_SEQ_LEN)
+        # seq_sizes.append(seq_size)
+        # # Test the Sequence Dataset class
+        seq_dataset = SequenceDataset(n_sequences=1, subset_len=SCORES_MIN_SEQ_LEN)
+        # print(len(seq_dataset.subset_sequences))
+        # # Initialize a real sequence (Distance Matrix Assigned)
+        # seq = seq_dataset.get_random_subset()
+        # # seq.test_adjust_coords_video()
+        # # 1. Replace Coordinate with Random Noise
+        # # seq._coords_to_noise()
+        # # 1.2 Replace Coordinate with Contrsucted Spine Model
+        random_seq_id = random.choice(
+            seq_dataset.get_sequence_ids(
+                min_len=SCORES_MIN_SEQ_LEN, max_len=SCORES_MAX_SEQ_LEN
+            )
+        )
+        seq = seq_dataset.get_sequence(seq_id=random_seq_id)
+        seq_size = len(seq.seq_str)
 
         target_matrix = seq.distance_matrix.clone()
         # print("Target Matrix: ", target_matrix)
@@ -412,28 +464,27 @@ def analyse_scores(N: int):
     else:
         print("No valid scores were returned.")
 
+
 def analyse_one():
     # Test the Sequence Dataset class
-    seq_dataset = SequenceDataset(n_sequences=N_SEQUENCES, sequence_size=SEQUENCE_SIZE)
-    print(len(seq_dataset.source_sequences))
+    seq_dataset = SequenceDataset(n_sequences=N_SEQUENCES, subset_len=SUBSET_LEN)
+    # print(len(seq_dataset.subset_sequences))
     # Initialize a real sequence (Distance Matrix Assigned)
-    seq = seq_dataset.get_random_sequence()
+    seq = seq_dataset.get_random_subset()
     # seq.test_adjust_coords_video()
     # 1. Replace Coordinate with Random Noise
     # seq._coords_to_noise()
     # 1.2 Replace Coordinate with Contrsucted Spine Model
-    
+
     target_matrix = seq.distance_matrix.clone()
-    
+
     spine_model: SpineModel = SpineModel()
     spine_coords, spine_recording = spine_model.construct_spine_coords(
-        seq_str=seq.seq_str,
-        target_matrix=target_matrix
+        seq_str=seq.seq_str, target_matrix=target_matrix
     )
     spine_matrix = coord_to_distance_matrix(coords_list_to_matrix(spine_coords))
     # print("Spine Matrix: ", spine_matrix)
 
-    
     # print("Target Matrix: ", target_matrix)
 
     # swap target matrix with spine matrix whee abs(i-j) < 5
@@ -454,7 +505,6 @@ def analyse_one():
     #     max_delta=MAX_DELTA,
     # )
 
-
     target_pdb_path = "seq_output/sequence_source.pdb"
     generated_pdb_path = "seq_output/sequence_generatored.pdb"
     mirrored_pdb_path = "seq_output/sequence_mirrored.pdb"
@@ -470,12 +520,9 @@ def analyse_one():
     )
 
     score = compute_similarity(path_1=generated_pdb_path, path_2=target_pdb_path)
-    mirror_score = compute_similarity(
-        path_1=mirrored_pdb_path, path_2=target_pdb_path
-    )
+    mirror_score = compute_similarity(path_1=mirrored_pdb_path, path_2=target_pdb_path)
     print(f"SCORE: {score} --   MIRROR SCORE: {mirror_score}")
-    
-    
+
     create_video(
         target_coords=seq.coords,
         recording=spine_recording + recording,
@@ -491,27 +538,24 @@ def analyse_one():
 if __name__ == "__main__":
     # ================ Test 1 ==============
     # print("Testing one sequence")
-    # analyse_one()
+    analyse_one()
     # =============== Test 2 ==============
-    
+
     # print("Testing multiple sequence lengths scores")
-    analyse_scores(100)
-    
-    
+    # analyse_scores(100)
+
     # =============== Test 3 ==============
     # print("Loading Sequence Dataset")
-    # seq_dataset = SequenceDataset(n_sequences=N_SEQUENCES, sequence_size=SEQUENCE_SIZE)
-    # print(len(seq_dataset.source_sequences))
+    # seq_dataset = SequenceDataset(n_sequences=N_SEQUENCES, subset_len=SEQUENCE_SIZE)
+    # print(len(seq_dataset.subset_sequences))
     # # Initialize a real sequence (Distance Matrix Assigned)
     # # seq_dataset.get_stats()
     # print("Loading Random Sequence")
-    # # seq = seq_dataset.get_random_sequence()
-    # seq = seq_dataset.source_sequences[0]
+    # # seq = seq_dataset.get_random_subset()
+    # seq = seq_dataset.subset_sequences[0]
     # print(f"Sequence Length: {len(seq.seq_str)}")
     # # seq._coords_to_noise()
     # # seq.adjust_coords(n_iter=100, use_neighbors=USE_NEIGHBORS)
     # seq._primary_test()
 
     # Sequence.compute_similarity_us_align()
-
-

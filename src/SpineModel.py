@@ -83,18 +83,18 @@ class SpineModel(nn.Module):
     """Simple MLP predicting a distance matrix from a one-hot encoding."""
 
     def __init__(
-        self, sequence_size: int = SPINE_WINDOW_SIZE, lr: float = SPINE_MODEL_LR
+        self, subset_len: int = SPINE_WINDOW_SIZE, lr: float = SPINE_MODEL_LR
     ):
         super().__init__()
-        self.sequence_size = sequence_size
+        self.subset_len = subset_len
 
         self.model = nn.Sequential(
-            nn.Linear(4 * sequence_size, 128),
+            nn.Linear(4 * subset_len, 128),
             nn.ReLU(),
             nn.Linear(128, 64),
             nn.Dropout(0.7),
             nn.ReLU(),
-            nn.Linear(64, sequence_size * sequence_size),
+            nn.Linear(64, subset_len * subset_len),
         )
         self.loss_fn = nn.MSELoss()
         self.optimizer = Adam(self.model.parameters(), lr=lr)
@@ -113,18 +113,18 @@ class SpineModel(nn.Module):
     # .................................................................
     def forward(self, x: torch.Tensor) -> torch.Tensor:  # type: ignore[override]
         return self.model(x.view(x.size(0), -1)).view(
-            -1, self.sequence_size, self.sequence_size
+            -1, self.subset_len, self.subset_len
         )
 
     # ---------------------------- data ------------------------------ #
 
     @staticmethod
-    def _build_tensor_dataset(n_sequences: int, sequence_size: int) -> TensorDataset:
+    def _build_tensor_dataset(n_sequences: int, subset_len: int) -> TensorDataset:
         from Sequence import SequenceDataset  # local import
 
-        seq_ds = SequenceDataset(n_sequences=n_sequences, sequence_size=sequence_size)
+        seq_ds = SequenceDataset(n_sequences=n_sequences, subset_len=subset_len)
         xs, ys = zip(
-            *((s.encoding, s.distance_matrix) for s in seq_ds.source_sequences)
+            *((s.encoding, s.distance_matrix) for s in seq_ds.subset_sequences)
         )
         x = torch.stack(xs).float()
         y = torch.stack(ys).float()
@@ -139,7 +139,7 @@ class SpineModel(nn.Module):
         cache = load_artifact(DATASET_PATH)
         if cache is None:
             print("=== Generating dataset ===")
-            ds = self._build_tensor_dataset(SPINE_N_SEQUENCES, self.sequence_size)
+            ds = self._build_tensor_dataset(SPINE_N_SEQUENCES, self.subset_len)
             save_artifact({"x": ds.tensors[0], "y": ds.tensors[1]}, DATASET_PATH)
             print(f"=== Saved dataset to {DATASET_PATH} ===")
         else:
@@ -219,15 +219,15 @@ class SpineModel(nn.Module):
         count = torch.ones(len(seq_str), len(seq_str))
         distance_matrix = torch.zeros(len(seq_str), len(seq_str))
 
-        last_index = len(seq_str) - self.sequence_size + 1
+        last_index = len(seq_str) - self.subset_len + 1
         for i in range(last_index):
             min_index = i
-            max_index = i + self.sequence_size
+            max_index = i + self.subset_len
             # slice the sequence and encode it
-            seq_slice = seq_str[i : i + self.sequence_size]
+            seq_slice = seq_str[i : i + self.subset_len]
             seq_onehot: Tensor = encode_str(seq_slice)
             dist_mat: Tensor = self.forward(seq_onehot.unsqueeze(0)).squeeze(0)
-            dist_mat = dist_mat.view(self.sequence_size, self.sequence_size)
+            dist_mat = dist_mat.view(self.subset_len, self.subset_len)
 
             distance_matrix[min_index:max_index, min_index:max_index] += dist_mat
 
@@ -269,6 +269,7 @@ class SpineModel(nn.Module):
                         distance_matrix[i, j] = target_matrix[i, j]
                         
         for i in range(len(seq_str)):
+            print(f"Nucleotide {i+1}/{len(seq_str)}")
             if i < SPINE_WINDOW_SIZE:
                 coords.append(
                     Vector(
