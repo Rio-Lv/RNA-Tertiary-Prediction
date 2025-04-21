@@ -21,7 +21,7 @@ TEMPERATURE = 0.1
 ACITVE_KEEP_RATE_SPINE = 1
 ACITVE_KEEP_RATE_SETTLE = 0.1
 
-MAX_INDEX_DIFF = 50
+MAX_INDEX_DIFF = 30
 
 
 # ------------------------- hyper‑parameters ------------------------- #
