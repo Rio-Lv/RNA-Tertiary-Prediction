@@ -4,7 +4,7 @@ import subprocess
 import re
 from typing import Optional
 from torch import Tensor
-import torch 
+import torch
 import numpy as np
 from scipy.spatial.transform import Rotation as R
 import matplotlib
@@ -16,6 +16,12 @@ import matplotlib.animation as animation
 EPS = 1e-8
 VIDEO_PADDING = 0.25
 MIN_BOUNCE_DISTANCE = 3.5  # Minimum distance between atoms after bounce
+A_COLOR = "red"
+C_COLOR = "blue"
+G_COLOR = "green"
+U_COLOR = "orange"
+
+
 
 # ====== TYPES ======
 class Vector:
@@ -31,7 +37,7 @@ class Vector:
     def copy(self):
         return Vector(self.x, self.y, self.z)
 
-    def add(self, vector: 'Vector'):
+    def add(self, vector: "Vector"):
         self.x += vector.x
         self.y += vector.y
         self.z += vector.z
@@ -40,9 +46,9 @@ class Vector:
         return np.array([self.x, self.y, self.z], dtype=float)
 
     @staticmethod
-    def from_array(a: np.ndarray) -> 'Vector':
+    def from_array(a: np.ndarray) -> "Vector":
         return Vector(float(a[0]), float(a[1]), float(a[2]))
-    
+
     def __repr__(self):
         return f"Vector({self.x}, {self.y}, {self.z}) \n"
 
@@ -197,7 +203,7 @@ def atomic_bounce(
 
     # Net shift for each atom = sum of contributions from all partners  [N, 3]
     atom_shifts = pair_shifts.sum(dim=1)
-    
+
     # Scale the shifts to be within max_delta
     atom_shifts_mags = torch.norm(atom_shifts, dim=1, keepdim=True)
     scale = max_delta / (atom_shifts_mags + EPS)
@@ -205,7 +211,7 @@ def atomic_bounce(
     atom_shifts = torch.clamp(atom_shifts, -max_delta, max_delta)
 
     # Apply the shifts
-    return coord_matrix + atom_shifts 
+    return coord_matrix + atom_shifts
 
 
 def apply_heat(distance_matrix: Tensor, temperature: float) -> Tensor:
@@ -292,7 +298,7 @@ def adjust_coords(
             max_index = min(curr // iterations_per_residue + 4, length)
 
         active_coord_matrix = coord_matrix[:max_index].clone()  # rows only
-        
+
         if len(active_coord_matrix) < length:
             active_coord_matrix = sub_next_coord(active_coord_matrix)
 
@@ -317,7 +323,7 @@ def adjust_coords(
         )
         # 4. Add the deltas to the coordinates.
         active_coord_matrix[:max_index, :max_index] += deltas
-        
+
         # 5. Apply atomic bounce to the coordinates.
         active_coord_matrix = atomic_bounce(
             active_coord_matrix, max_delta, min_distance=MIN_BOUNCE_DISTANCE
@@ -422,6 +428,7 @@ def align(input_coords: list[Vector], target_coords: list[Vector]):
     # Convert back to Vectors
     return [Vector(x, y, z) for x, y, z in final_pts]
 
+
 def mirror(coords: list[Vector], axis: str = "x") -> list[Vector]:
     """
     Mirror the coordinates across a specified axis.
@@ -441,116 +448,133 @@ def mirror(coords: list[Vector], axis: str = "x") -> list[Vector]:
             raise ValueError("Invalid axis. Choose 'x', 'y', or 'z'.")
     return mirrored_coords
 
-def plot_coords_list(coords_list: list[list[Vector]], set_names: list[str] = None):
+def plot_coords_list(
+    seq_str: str,
+    coords: list[Vector],
+    reference_coords: list[Vector] = None,
+):
     """
-    Plot multiple sequences by marking each point and connecting each coordinate
-    i to i+1 with a line. Each vector set in coords_list is plotted as a separate
-    line using a distinct color. The line is rendered with added transparency and
-    thickness, and the points are larger.
+    Plot a 3D sequence:
+      • reference_coords in faint gray (alpha=0.1) if provided
+      • coords path in black
+      • points colored by seq_str bases (A/C/G/U)
 
     Parameters:
-    coords_list (list[list[Vector]]): A list containing one or more lists of Vector objects.
-                                        If None, uses self.coords as a single vector set.
-    set_names (list[str]): Optional list of labels for each coordinate set. The length of
-                            set_names must match the number of coordinate sets.
+      seq_str:          length-N string of A/C/G/U
+      coords:           list of N Vector
+      reference_coords: optional list of N Vector drawn in gray
     """
-    # print(coords_list)
-    if len(coords_list) > 1:
-        coords_list = [align(coords, coords_list[0]) for coords in coords_list]
+    if reference_coords is not None:
+        coords = align(coords, reference_coords)
+    # sanity checks
+    N = len(seq_str)
+    if len(coords) != N:
+        raise ValueError(f"`coords` length ({len(coords)}) != seq_str length ({N})")
+    if reference_coords and len(reference_coords) != N:
+        raise ValueError("`reference_coords` must match length of `seq_str`")
 
-    # If no set names are provided, use default names.
-    if set_names is None:
-        set_names = [f"Set {i+1}" for i in range(len(coords_list))]
-    elif len(set_names) != len(coords_list):
-        raise ValueError(
-            "Length of set_names must equal the number of coordinate sets in coords_list"
-        )
+    # mapping bases → colors
+    base_color_map = {"A": A_COLOR, "C": C_COLOR, "G": G_COLOR, "U": U_COLOR}
 
     fig = plt.figure()
     ax = fig.add_subplot(111, projection="3d")
 
-    # Use a colormap to assign a distinct color to each coordinate set.
-    cmap = matplotlib.colormaps.get_cmap("tab10")
+    # 1) reference in faint gray
+    if reference_coords:
+        xr = [v.x for v in reference_coords]
+        yr = [v.y for v in reference_coords]
+        zr = [v.z for v in reference_coords]
+        ax.scatter(xr, yr, zr, color="gray", alpha=0.5, s=100, label="Reference Points")
+        ax.plot(xr, yr, zr, color="gray", alpha=0.5, linewidth=2, label="Reference Path")
 
-    # Iterate over each vector set and plot the points and connecting line.
-    for i in range(len(coords_list)):
-        coords = coords_list[i]
-        x = [coord.x for coord in coords]
-        y = [coord.y for coord in coords]
-        z = [coord.z for coord in coords]
+    # 2) main path in black
+    x = [v.x for v in coords]
+    y = [v.y for v in coords]
+    z = [v.z for v in coords]
+    ax.plot(x, y, z, color="black", alpha=0.7, linewidth=2, label="Coords Path")
 
-        color = cmap(i)  # Get a distinct color for the current set
+    # 3) scatter colored by base
+    base_groups = {b: [] for b in base_color_map}
+    for base, vec in zip(seq_str, coords):
+        if base in base_groups:
+            base_groups[base].append(vec)
 
-        # Scatter plot the points with increased size.
-        ax.scatter(x, y, z, s=100, color=color, label=f"{set_names[i]} Points")
+    for base, group in base_groups.items():
+        if not group:
+            continue
+        xb = [v.x for v in group]
+        yb = [v.y for v in group]
+        zb = [v.z for v in group]
+        ax.scatter(xb, yb, zb, color=base_color_map[base], s=100, label=f"Coords {base}")
 
-        # Connect the points with a line that is thicker and partially transparent.
-        ax.plot(
-            x,
-            y,
-            z,
-            color=color,
-            alpha=0.7,
-            linewidth=2,
-            label=f"{set_names[i]} Path",
-        )
-
-    # Label the axes.
+    # decorate
     ax.set_xlabel("X")
     ax.set_ylabel("Y")
     ax.set_zlabel("Z")
-
-    # Add a title and legend for clarity.
     ax.set_title("3D Vector Plot")
-    ax.legend()
+
+    # push legend outside
+    plt.subplots_adjust(right=0.75)
+    ax.legend(
+        loc="upper left",
+        bbox_to_anchor=(1.05, 1.0),
+        borderaxespad=0.0
+    )
 
     plt.show()
-
+    
 def create_video(
     target_coords: list[Vector],
     recording: list[Tensor],
+    seq_str: str,
     speed: int,
     save_path: str,
     interval: int = 33,
 ):
+    assert len(seq_str) == len(
+        target_coords
+    ), "seq_str must match length of target_coords"
     start_time = time.time()
+
+    # Decimate the recording by speed
     recording_coords: list[list[Vector]] = []
-    for i in range(len(recording)):
+    for i, frame_tensor in enumerate(recording):
         if i % speed != 0:
             continue
-        frame_tensor = recording[i]
-        frame_coords = [
-            Vector(coord[0].item(), coord[1].item(), coord[2].item())
-            for coord in frame_tensor
-        ]
-        recording_coords.append(frame_coords)
-
-
+        recording_coords.append(
+            [Vector(c[0].item(), c[1].item(), c[2].item()) for c in frame_tensor]
+        )
     num_frames = len(recording_coords)
-    # Compute bounding box limits based on the original coordinates with 50% padding.
-    
-    x_orig_vals = [coord.x for coord in target_coords]
-    y_orig_vals = [coord.y for coord in target_coords]
-    z_orig_vals = [coord.z for coord in target_coords]
 
-    x_min, x_max = min(x_orig_vals), max(x_orig_vals)
-    y_min, y_max = min(y_orig_vals), max(y_orig_vals)
-    z_min, z_max = min(z_orig_vals), max(z_orig_vals)
-
-    # Ensure nonzero ranges.
-    x_range = x_max - x_min if (x_max - x_min) != 0 else 1.0
-    y_range = y_max - y_min if (y_max - y_min) != 0 else 1.0
-    z_range = z_max - z_min if (z_max - z_min) != 0 else 1.0
-
+    # --- compute bounding box with padding as before ---
+    x_vals = [v.x for v in target_coords]
+    y_vals = [v.y for v in target_coords]
+    z_vals = [v.z for v in target_coords]
+    x_min, x_max = min(x_vals), max(x_vals)
+    y_min, y_max = min(y_vals), max(y_vals)
+    z_min, z_max = min(z_vals), max(z_vals)
+    x_range = x_max - x_min or 1.0
+    y_range = y_max - y_min or 1.0
+    z_range = z_max - z_min or 1.0
     x_pad = VIDEO_PADDING * x_range
     y_pad = VIDEO_PADDING * y_range
     z_pad = VIDEO_PADDING * z_range
-
     x_lim = (x_min - x_pad, x_max + x_pad)
     y_lim = (y_min - y_pad, y_max + y_pad)
     z_lim = (z_min - z_pad, z_max + z_pad)
 
-    # Create a 3D plot for the animation.
+    # --- define your base→color mapping and precompute indices ---
+    base_colors = {
+        "A": A_COLOR,
+        "C": C_COLOR,
+        "G": G_COLOR,
+        "U": U_COLOR,
+    }
+    # seq_indices = {
+    #     base: [i for i, b in enumerate(seq_str) if b == base] for base in base_colors
+    # }
+
+    # set up figure & axis
     fig = plt.figure()
     ax = fig.add_subplot(111, projection="3d")
 
@@ -559,20 +583,12 @@ def create_video(
         ax.set_xlim(x_lim)
         ax.set_ylim(y_lim)
         ax.set_zlim(z_lim)
-        # Plot original coordinates.
-        x_orig = [coord.x for coord in target_coords]
-        y_orig = [coord.y for coord in target_coords]
-        z_orig = [coord.z for coord in target_coords]
-        ax.scatter(x_orig, y_orig, z_orig, color="gray", s=100, label="Original", alpha=0.1)
-        ax.plot(
-            x_orig,
-            y_orig,
-            z_orig,
-            color="gray",
-            alpha=0.1,
-            linewidth=2,
-            label="Original Path",
-        )
+        # original in transparent gray
+        xo = [v.x for v in target_coords]
+        yo = [v.y for v in target_coords]
+        zo = [v.z for v in target_coords]
+        ax.scatter(xo, yo, zo, color="gray", s=100, alpha=0.1)
+        ax.plot(xo, yo, zo, color="gray", alpha=0.1, linewidth=2)
         ax.set_xlabel("X")
         ax.set_ylabel("Y")
         ax.set_zlabel("Z")
@@ -580,42 +596,48 @@ def create_video(
         return []
 
     def update(frame):
-        # Print progress every 10 frames.
-        if (frame) % 10 == 0 or frame == 0:
-            print(f"Processing frame {frame}/{num_frames}")
+        if frame % 10 == 0:
+            print(f"Processing frame {frame+1}/{num_frames}")
+        current = align(recording_coords[frame], target_coords)
 
-        # Optionally, align the current recorded frame to the original coordinates.
-        current_coords = align(recording_coords[frame], target_coords)
-        x_adj = [coord.x for coord in current_coords]
-        y_adj = [coord.y for coord in current_coords]
-        z_adj = [coord.z for coord in current_coords]
+        # Build per-base groups by zipping seq_str & coords
+        base_groups = {base: [] for base in base_colors}
+        for base, vec in zip(seq_str, current):
+            if base in base_groups:
+                base_groups[base].append(vec)
 
+        # Clear & reset axes
         ax.clear()
         ax.set_xlim(x_lim)
         ax.set_ylim(y_lim)
         ax.set_zlim(z_lim)
 
-        # Plot the static original coordinates.
-        x_orig = [coord.x for coord in target_coords]
-        y_orig = [coord.y for coord in target_coords]
-        z_orig = [coord.z for coord in target_coords]
-        ax.scatter(x_orig, y_orig, z_orig, color="gray", s=100, label="Original")
-        ax.plot(
-            x_orig,
-            y_orig,
-            z_orig,
-            color="gray",
-            alpha=0.7,
-            linewidth=2,
-            label="Original Path",
-        )
-        # Plot the adjusted (dynamic) coordinates.
-        ax.scatter(x_adj, y_adj, z_adj, color="red", s=100, label="Adjusted")
+        # Re‐plot original
+        xo = [v.x for v in target_coords]
+        yo = [v.y for v in target_coords]
+        zo = [v.z for v in target_coords]
+        ax.scatter(xo, yo, zo, color="gray", s=100, alpha=0.3)
+        ax.plot(xo, yo, zo, color="gray", alpha=0.7, linewidth=2)
+
+        # Scatter each base in its color
+        for base, color in base_colors.items():
+            grp = base_groups[base]
+            if not grp:
+                continue
+            xs = [v.x for v in grp]
+            ys = [v.y for v in grp]
+            zs = [v.z for v in grp]
+            ax.scatter(xs, ys, zs, color=color, s=100, label=base)
+
+        # Optional: draw the overall adjusted path in red
+        x_adj = [v.x for v in current]
+        y_adj = [v.y for v in current]
+        z_adj = [v.z for v in current]
         ax.plot(
             x_adj,
             y_adj,
             z_adj,
-            color="red",
+            color="black",
             alpha=0.7,
             linewidth=2,
             label="Adjusted Path",
@@ -625,33 +647,25 @@ def create_video(
         ax.set_ylabel("Y")
         ax.set_zlabel("Z")
         ax.set_title(f"Adjustment Frame {frame+1}")
-        ax.legend(loc="upper right")
+        ax.legend(loc="upper left", bbox_to_anchor=(1.05, 1.0), borderaxespad=0.0)
         return []
 
-    # Create the animation object using the decimated recording.
+    # build & save animation
     ani = animation.FuncAnimation(
-        fig,
-        update,
-        frames=range(num_frames),
-        init_func=init,
-        interval=interval,
-        repeat=False,
+        fig, update, frames=num_frames, init_func=init, interval=interval, repeat=False
     )
-
-    # Save the video using the FFmpeg writer.
     Writer = animation.writers["ffmpeg"]
-    writer = Writer(
-        fps=1000 // interval, metadata=dict(artist="Your Name"), bitrate=1800
-    )
+    writer = Writer(fps=1000 // interval, metadata=dict(artist="You"), bitrate=1800)
     ani.save(save_path, writer=writer)
     plt.close(fig)
 
-    elapsed_time = time.time() - start_time
-    print(f"Video saved to {save_path} in {elapsed_time:.2f} seconds")
+    print(f"Video saved to {save_path} in {time.time() - start_time:.2f}s")
 
 
 # ============= Compute Similarity =============
-def compute_similarity(path_1: str, path_2: str, timeout: float = 3.0) -> Optional[float]:
+def compute_similarity(
+    path_1: str, path_2: str, timeout: float = 3.0
+) -> Optional[float]:
     """
     Run USalign on two PDB files, capture its output, and return the TM-score
     normalized by the length of Structure_1.
@@ -672,9 +686,7 @@ def compute_similarity(path_1: str, path_2: str, timeout: float = 3.0) -> Option
     # run USalign and capture output
     try:
         result = subprocess.run(
-            ["../USalign/USalign", path_1, path_2],
-            capture_output=True,
-            text=True
+            ["../USalign/USalign", path_1, path_2], capture_output=True, text=True
         )
     except Exception as e:
         print(f"Error running USalign: {e}")
@@ -685,12 +697,13 @@ def compute_similarity(path_1: str, path_2: str, timeout: float = 3.0) -> Option
     # regex to find the TM-score normalized by Structure_1
     m = re.search(
         r"TM-score=\s*([0-9]+(?:\.[0-9]+)?)\s*\(normalized by length of Structure_1",
-        stdout
+        stdout,
     )
     if not m:
         print("TM-score (normalized by Structure_1) not found in USalign output.")
         return None
     return float(m.group(1))
+
 
 def correct_chirality(coords: List[Vector]) -> List[Vector]:
     """
@@ -719,7 +732,7 @@ def correct_chirality(coords: List[Vector]) -> List[Vector]:
 
     # Compute signed triple products for i=0..N-4: (b[i] x b[i+1]) · b[i+2]
     # Use consistent slicing: b[:-2], b[1:-1], b[2:]
-    triples = np.einsum('ij,ij->i', np.cross(b[:-2], b[1:-1]), b[2:])
+    triples = np.einsum("ij,ij->i", np.cross(b[:-2], b[1:-1]), b[2:])
 
     # Filter out exact zeros (collinear triples)
     non_zero = triples[triples != 0]

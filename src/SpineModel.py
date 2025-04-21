@@ -14,13 +14,12 @@ from tools import *
 
 
 EPS = 1e-8  # avoids 0‑division
-MAX_DELTA = 0.1 # clip per‑step movement (Å)
+MAX_DELTA = 0.1  # clip per‑step movement (Å)
 SPINE_ITERATIONS_PER_RESIDUE = 50
 ITERATIONS_TO_SETTLE = 1000
 TEMPERATURE = 0.1
 ACITVE_KEEP_RATE_SPINE = 1
 ACITVE_KEEP_RATE_SETTLE = 0.1
-
 
 
 # ------------------------- hyper‑parameters ------------------------- #
@@ -82,9 +81,7 @@ def _reconstruct_ds(cache: Dict[str, torch.Tensor]) -> TensorDataset:
 class SpineModel(nn.Module):
     """Simple MLP predicting a distance matrix from a one-hot encoding."""
 
-    def __init__(
-        self, subset_len: int = SPINE_WINDOW_SIZE, lr: float = SPINE_MODEL_LR
-    ):
+    def __init__(self, subset_len: int = SPINE_WINDOW_SIZE, lr: float = SPINE_MODEL_LR):
         super().__init__()
         self.subset_len = subset_len
 
@@ -106,9 +103,7 @@ class SpineModel(nn.Module):
         state = load_artifact(MODEL_PATH)
         if state is not None:
             self.model.load_state_dict(state)
-            print(
-                f"=== Loaded model weights from {MODEL_PATH} ==="
-            )
+            print(f"=== Loaded model weights from {MODEL_PATH} ===")
 
     # .................................................................
     def forward(self, x: torch.Tensor) -> torch.Tensor:  # type: ignore[override]
@@ -250,10 +245,10 @@ class SpineModel(nn.Module):
         seq_str: str,
         temperature: float = TEMPERATURE,
         iterations_per_residue: int = SPINE_ITERATIONS_PER_RESIDUE,
-        iterations_to_settle:int = ITERATIONS_TO_SETTLE,
+        iterations_to_settle: int = ITERATIONS_TO_SETTLE,
         max_delta: float = MAX_DELTA,
         active_keep_rate_spine: float = ACITVE_KEEP_RATE_SPINE,
-        active_keep_rate_settle: float = ACITVE_KEEP_RATE_SETTLE,   
+        active_keep_rate_settle: float = ACITVE_KEEP_RATE_SETTLE,
         target_matrix: Tensor = None,
     ) -> Tuple[List[Vector], List[Vector]]:
         """
@@ -265,9 +260,9 @@ class SpineModel(nn.Module):
         if target_matrix is not None:
             for i in range(len(seq_str)):
                 for j in range(len(seq_str)):
-                    if abs( i - j ) > SPINE_WINDOW_SIZE:
+                    if abs(i - j) > SPINE_WINDOW_SIZE:
                         distance_matrix[i, j] = target_matrix[i, j]
-                        
+
         for i in range(len(seq_str)):
             print(f"Nucleotide {i+1}/{len(seq_str)}")
             if i < SPINE_WINDOW_SIZE:
@@ -297,8 +292,7 @@ class SpineModel(nn.Module):
                     # adjust_last=False,
                 )
                 full_recording.extend(recording)
-                
-  
+
         settled_coords, settled_recording = adjust_coords(
             n_iter=iterations_to_settle,
             input_coords=coords,
@@ -369,20 +363,24 @@ if __name__ == "__main__":
     # 2. ===== USING THE MODEL =====
     spine_model = SpineModel()
 
+    seq_str = "CCCCCCCCCGGGGGGGAAAAAAAAACCCCAAAAGGUUGGUGUUGGUGUGGAGAGAGAGAGUAGAGUAGAG"
     # create a distance matrix for a random sequence
     # distance_matrix = spine_model.construct_distance_matrix("ACGUAAAA")
     spine_coords, recording = spine_model.construct_spine_coords(
-        seq_str="CCCCCCCCCGGGGGGGAAAAAAAAACCCCAAAAGGUUGGUGUUGGUGUGGAGAGAGAGAGUAGAGUAGAG",
+        seq_str=seq_str,
     )
 
     create_video(
         target_coords=spine_coords,
         recording=recording,
+        seq_str=seq_str,
         save_path="videos/SpineModel.mp4",
         speed=5,
     )
 
-    plot_coords_list([spine_coords], ["Spine Coordinates"])
+    plot_coords_list(
+        seq_str=seq_str, coords=spine_coords, title="Spine Coordinates"
+    )
 
     # plot the coordinates
     # distance_matrix = spine_model.construct_distance_matrix(

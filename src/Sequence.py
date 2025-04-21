@@ -24,7 +24,7 @@ from SpineModel import SpineModel
 os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
 # ====== CONSTANTS ======
-SUBSET_LEN = 200
+SUBSET_LEN = 120
 
 N_SEQUENCES = 50
 # N_NEAREST_NEIGBORS = 30  # If using n nearest neighbors for adjustment
@@ -216,12 +216,17 @@ class Sequence:
         create_video(
             target_coords=target_coords,
             recording=recording,
+            seq_str=self.seq_str,
             speed=VIDEO_SPEED,
             save_path="seq_output/adjustment.mp4",
             interval=33,
         )
 
-        plot_coords_list([target_coords, coords_adjusted], ["Original", "Adjusted"])
+        plot_coords_list(
+            seq_str=self.seq_str,
+            coords=coords_adjusted,
+            reference_coords=target_coords,
+        )
 
 
 # ====== DATA PPEPERATION ======
@@ -237,7 +242,7 @@ class SequenceDataset:
         self.n_sequences = n_sequences
         self.labels = pd.read_csv(LABELS_PATH)
         self.sequences = pd.read_csv(SEQUENCES_PATH)
-        
+
         self.subset_len = subset_len
         self.subset_sequences = self.generate_subset_sequences()
 
@@ -526,13 +531,18 @@ def analyse_one():
     create_video(
         target_coords=seq.coords,
         recording=spine_recording + recording,
+        seq_str=seq.seq_str,
         speed=VIDEO_SPEED,
         save_path="videos/Sequence.mp4",
         interval=33,
     )
     print(f"SCORE: {score} --   MIRROR SCORE: {mirror_score}")
-    # plot_coords_list([seq.coords, adjusted_coords], ["Original", "Adjusted"])
-    plot_coords_list([seq.coords, adjusted_coords], ["Original", "Spine Contructed"])
+
+    plot_coords_list(
+        seq_str=seq.seq_str,
+        coords = adjusted_coords,
+        reference_coords=seq.coords,
+    )
 
 
 if __name__ == "__main__":
