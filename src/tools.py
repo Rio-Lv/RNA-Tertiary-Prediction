@@ -9,7 +9,7 @@ import numpy as np
 from scipy.spatial.transform import Rotation as R
 import matplotlib
 import matplotlib.pyplot as plt
-from typing import Tuple
+from typing import Tuple, List
 import time
 import matplotlib.animation as animation
 
@@ -31,11 +31,18 @@ class Vector:
     def copy(self):
         return Vector(self.x, self.y, self.z)
 
-    def add(self, vector: "Vector"):
+    def add(self, vector: 'Vector'):
         self.x += vector.x
         self.y += vector.y
         self.z += vector.z
 
+    def as_array(self) -> np.ndarray:
+        return np.array([self.x, self.y, self.z], dtype=float)
+
+    @staticmethod
+    def from_array(a: np.ndarray) -> 'Vector':
+        return Vector(float(a[0]), float(a[1]), float(a[2]))
+    
     def __repr__(self):
         return f"Vector({self.x}, {self.y}, {self.z}) \n"
 
@@ -685,3 +692,45 @@ def compute_similarity(path_1: str, path_2: str, timeout: float = 3.0) -> Option
         print("TM-score (normalized by Structure_1) not found in USalign output.")
         return None
     return float(m.group(1))
+
+def correct_chirality(coords: List[Vector]) -> List[Vector]:
+    """
+    Detects if a backbone coordinate list is left-handed (mirrored) and corrects it by reflecting the x-axis.
+    Returns a list of Vector objects in right-handed form.
+
+    Parameters
+    ----------
+    coords : List[Vector]
+        List of Vector instances representing the backbone in sequential order.
+
+    Returns
+    -------
+    List[Vector]
+        Coordinates converted to natural right-handed chirality.
+    """
+    # Convert to NumPy array (N, 3)
+    arr = np.stack([v.as_array() for v in coords], axis=0)
+
+    # Handedness undefined for fewer than 4 points
+    if arr.shape[0] < 4:
+        return coords
+
+    # Compute backbone vectors: b_i = p_{i+1} - p_i
+    b = arr[1:] - arr[:-1]  # shape (N-1, 3)
+
+    # Compute signed triple products for i=0..N-4: (b[i] x b[i+1]) · b[i+2]
+    # Use consistent slicing: b[:-2], b[1:-1], b[2:]
+    triples = np.einsum('ij,ij->i', np.cross(b[:-2], b[1:-1]), b[2:])
+
+    # Filter out exact zeros (collinear triples)
+    non_zero = triples[triples != 0]
+
+    # Determine average sign: positive = right-handed, negative = left-handed
+    mean_sign = float(np.mean(np.sign(non_zero))) if non_zero.size else 0.0
+
+    # Reflect x-axis if left-handed
+    if mean_sign < 0:
+        arr[:, 0] *= -1.0
+
+    # Convert back to List[Vector]
+    return [Vector.from_array(row) for row in arr]

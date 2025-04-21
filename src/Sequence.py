@@ -359,7 +359,7 @@ def analyse_scores(N: int):
             max_delta=MAX_DELTA_SPINE,
             target_matrix=target_matrix,
         )
-
+        spine_coords = correct_chirality(spine_coords)
         target_pdb_path = "seq_output/sequence_source.pdb"
         generated_pdb_path = "seq_output/sequence_generatored.pdb"
         mirrored_pdb_path = "seq_output/sequence_mirrored.pdb"
