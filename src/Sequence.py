@@ -54,7 +54,7 @@ GRAVITY = 0.001
 VIDEO_SPEED = ITERATIONS // 200  # Speed of the video in frames per second
 
 DIR_BIAS_X = 1  # Bias for the x direction in random walk
-ACTIVE_KEEP_RATE = 1  # Rate at which deltas are dropped
+ACTIVE_KEEP_RATE = 0.1  # Rate at which deltas are dropped
 MAX_INDEX_DIFF = 200
 # NOISY_SOURCE_MATRIX = True
 
