@@ -107,7 +107,7 @@ class SpineModel(nn.Module):
         if state is not None:
             self.model.load_state_dict(state)
             print(
-                f"=== Loaded model weights from {MODEL_PATH}; continuing training ==="
+                f"=== Loaded model weights from {MODEL_PATH} ==="
             )
 
     # .................................................................

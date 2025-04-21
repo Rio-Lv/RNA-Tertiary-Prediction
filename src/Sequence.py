@@ -337,7 +337,7 @@ def analyse_scores(N: int):
     scores = []
     mirrored_scores = []
     for iter in range(N):
-        seq_size = random.randint(50, 300)
+        seq_size = random.randint(20, 600)
         seq_sizes.append(seq_size)
         # Test the Sequence Dataset class
         seq_dataset = SequenceDataset(n_sequences=1, sequence_size=seq_size)
@@ -381,8 +381,9 @@ def analyse_scores(N: int):
         )
 
         print(
-            f"============ ANALYSED {iter+1} / {N} --- Score {score} --- Mirror Score {mirror_score} ---- ============"
+            f"=== ANALYSED {iter+1} / {N} - Score {score} - Mirror Score {mirror_score} ==="
         )
+        print(f"--- Sequence Size: {seq_size} ---")
         scores.append(score)
         mirrored_scores.append(mirror_score)
 
@@ -490,11 +491,11 @@ def analyse_one():
 if __name__ == "__main__":
     # ================ Test 1 ==============
     # print("Testing one sequence")
-    analyse_one()
+    # analyse_one()
     # =============== Test 2 ==============
     
     # print("Testing multiple sequence lengths scores")
-    # analyse_scores(50)
+    analyse_scores(100)
     
     
     # =============== Test 3 ==============
