@@ -21,6 +21,8 @@ TEMPERATURE = 0.1
 ACITVE_KEEP_RATE_SPINE = 1
 ACITVE_KEEP_RATE_SETTLE = 0.1
 
+MAX_INDEX_DIFF = 50
+
 
 # ------------------------- hyper‑parameters ------------------------- #
 TRAIN = False
@@ -257,14 +259,20 @@ class SpineModel(nn.Module):
         coords: list[Vector] = []
         full_recording: list[Tensor] = []
         distance_matrix = self.construct_distance_matrix(seq_str)
+        # Use Real Matrix but Replace Spine
         if target_matrix is not None:
             for i in range(len(seq_str)):
                 for j in range(len(seq_str)):
                     if abs(i - j) > SPINE_WINDOW_SIZE:
                         distance_matrix[i, j] = target_matrix[i, j]
+                        
+                    if abs(i-j) > MAX_INDEX_DIFF:
+                        distance_matrix[i, j] = 0
+
 
         for i in range(len(seq_str)):
-            print(f"Nucleotide {i+1}/{len(seq_str)}")
+            if i % 20 == 0:
+                print(f"Nucleotide {i+1}/{len(seq_str)}")
             if i < SPINE_WINDOW_SIZE:
                 coords.append(
                     Vector(
@@ -379,7 +387,7 @@ if __name__ == "__main__":
     )
 
     plot_coords_list(
-        seq_str=seq_str, coords=spine_coords, title="Spine Coordinates"
+        seq_str=seq_str, coords=spine_coords
     )
 
     # plot the coordinates

@@ -701,9 +701,9 @@ def compute_similarity(
     )
     if not m:
         print("TM-score (normalized by Structure_1) not found in USalign output.")
-        return None
+            
+        return 0
     return float(m.group(1))
-
 
 def correct_chirality(coords: List[Vector]) -> List[Vector]:
     """
