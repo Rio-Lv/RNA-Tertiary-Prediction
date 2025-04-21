@@ -441,7 +441,7 @@ def analyse_one():
             if abs(i - j) < 5:
                 target_matrix[i][j] = spine_matrix[i][j]
 
-    adjusted_coords = spine_coords
+    adjusted_coords = correct_chirality(spine_coords)
     recording = spine_recording
     # adjusted_coords, recording = adjust_coords(
     #     n_iter=ITERATIONS,
@@ -482,7 +482,7 @@ def analyse_one():
         save_path="videos/Sequence.mp4",
         interval=33,
     )
-
+    print(f"SCORE: {score} --   MIRROR SCORE: {mirror_score}")
     # plot_coords_list([seq.coords, adjusted_coords], ["Original", "Adjusted"])
     plot_coords_list([seq.coords, adjusted_coords], ["Original", "Spine Contructed"])
 
@@ -490,11 +490,11 @@ def analyse_one():
 if __name__ == "__main__":
     # ================ Test 1 ==============
     # print("Testing one sequence")
-    # analyse_one()
+    analyse_one()
     # =============== Test 2 ==============
     
     # print("Testing multiple sequence lengths scores")
-    analyse_scores(50)
+    # analyse_scores(50)
     
     
     # =============== Test 3 ==============

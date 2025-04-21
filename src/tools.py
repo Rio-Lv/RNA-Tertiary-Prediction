@@ -525,8 +525,7 @@ def create_video(
         ]
         recording_coords.append(frame_coords)
 
-    # Downsample the recording so that only every Nth frame is rendered.
-    recording_coords = recording_coords
+
     num_frames = len(recording_coords)
     # Compute bounding box limits based on the original coordinates with 50% padding.
     
