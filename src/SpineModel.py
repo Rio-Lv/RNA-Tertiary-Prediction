@@ -14,11 +14,13 @@ from tools import *
 
 
 EPS = 1e-8  # avoids 0‑division
-MAX_DELTA = 0.5  # clip per‑step movement (Å)
-ITERATIONS = 2000  # relax steps *after each point*
-SPINE_ITERATIONS_PER_RESIDUE = 2
-TEMPERATURE = 0.001
-ACITVE_KEEP_RATE = 1
+MAX_DELTA = 0.1 # clip per‑step movement (Å)
+SPINE_ITERATIONS_PER_RESIDUE = 50
+ITERATIONS_TO_SETTLE = 1000
+TEMPERATURE = 0.1
+ACITVE_KEEP_RATE_SPINE = 1
+ACITVE_KEEP_RATE_SETTLE = 0.2
+
 
 
 # ------------------------- hyper‑parameters ------------------------- #
@@ -226,12 +228,7 @@ class SpineModel(nn.Module):
             seq_onehot: Tensor = encode_str(seq_slice)
             dist_mat: Tensor = self.forward(seq_onehot.unsqueeze(0)).squeeze(0)
             dist_mat = dist_mat.view(self.sequence_size, self.sequence_size)
-            # print(" DIST MATRIX window")
-            # print(dist_mat)
-            # print(dist_mat.shape)
-            # print(" DISTANCE MATRIX full")
-            # print(distance_matrix)
-            # print(distance_matrix.shape)
+
             distance_matrix[min_index:max_index, min_index:max_index] += dist_mat
 
             count[min_index:max_index, min_index:max_index] += 1
@@ -250,17 +247,27 @@ class SpineModel(nn.Module):
 
     def construct_spine_coords(
         self,
-        n_iter: int,
-        iterations_per_residue: int,
         seq_str: str,
+        temperature: float = TEMPERATURE,
+        iterations_per_residue: int = SPINE_ITERATIONS_PER_RESIDUE,
+        iterations_to_settle:int = ITERATIONS_TO_SETTLE,
         max_delta: float = MAX_DELTA,
+        active_keep_rate_spine: float = ACITVE_KEEP_RATE_SPINE,
+        active_keep_rate_settle: float = ACITVE_KEEP_RATE_SETTLE,   
+        target_matrix: Tensor = None,
     ) -> Tuple[List[Vector], List[Vector]]:
         """
         1. Put down first
         """
-        coords:list[Vector] = []
-        full_recording:list[Tensor] = []
+        coords: list[Vector] = []
+        full_recording: list[Tensor] = []
         distance_matrix = self.construct_distance_matrix(seq_str)
+        if target_matrix is not None:
+            for i in range(len(seq_str)):
+                for j in range(len(seq_str)):
+                    if abs( i - j ) > SPINE_WINDOW_SIZE:
+                        distance_matrix[i, j] = target_matrix[i, j]
+                        
         for i in range(len(seq_str)):
             if i < SPINE_WINDOW_SIZE:
                 coords.append(
@@ -280,17 +287,29 @@ class SpineModel(nn.Module):
                 coord.add(noise)
                 coords.append(coord)
                 coords, recording = adjust_coords(
-                    n_iter=10,
+                    n_iter=iterations_per_residue,
                     input_coords=coords,
                     target_matrix=distance_matrix,
-                    temperature=0.1,
-                    active_keep_rate=1,
-                    max_delta=0.5,
+                    temperature=temperature,
+                    active_keep_rate=active_keep_rate_spine,
+                    max_delta=max_delta,
                     # adjust_last=False,
                 )
-                full_recording += recording
+                full_recording.extend(recording)
                 
-        return coords, recording
+  
+        settled_coords, settled_recording = adjust_coords(
+            n_iter=iterations_to_settle,
+            input_coords=coords,
+            target_matrix=distance_matrix,
+            temperature=temperature,
+            active_keep_rate=active_keep_rate_settle,
+            max_delta=max_delta,
+            # adjust_last=False,
+        )
+        full_recording.extend(settled_recording)
+
+        return settled_coords, full_recording
 
 
 # --------------------------- script entry -------------------------- #
@@ -353,9 +372,6 @@ if __name__ == "__main__":
     # distance_matrix = spine_model.construct_distance_matrix("ACGUAAAA")
     spine_coords, recording = spine_model.construct_spine_coords(
         seq_str="CCCCCCCCCGGGGGGGAAAAAAAAACCCCAAAAGGUUGGUGUUGGUGUGGAGAGAGAGAGUAGAGUAGAG",
-        n_iter=ITERATIONS,
-        iterations_per_residue=SPINE_ITERATIONS_PER_RESIDUE,
-        max_delta=MAX_DELTA,
     )
 
     create_video(

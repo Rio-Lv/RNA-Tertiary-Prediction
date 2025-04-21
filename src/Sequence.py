@@ -32,15 +32,14 @@ N_SEQUENCES = 50
 # USE_NEIGHBORS = False  # If using n nearest neighbors for adjustment
 
 ITERATIONS = 6000
-ITERATIONS_SPINE = 6000
 
 ITERATIONS_PER_RESIDUE = 4
-ITERATIONS_PER_RESIDUE_SPINE = 4
+ITERATIONS_PER_RESIDUE_SPINE = 5
 
-MAX_DELTA = 0.1
-MAX_DELTA_SPINE = 0.4
+MAX_DELTA = 0.5
+MAX_DELTA_SPINE = 0.5
 
-TEMPERATURE = 1
+TEMPERATURE = 0.1
 
 LABELS_PATH = "data/train_labels.csv"
 SEQUENCES_PATH = "data/train_sequences.csv"
@@ -52,10 +51,10 @@ SEQUENCE_INDEX = 868
 OPEN_PLOT = True  # If True, will open a plot window for each sequence
 GRAVITY = 0.001
 
-VIDEO_SPEED = ITERATIONS // 500  # Speed of the video in frames per second
+VIDEO_SPEED = ITERATIONS // 200  # Speed of the video in frames per second
 
 DIR_BIAS_X = 1  # Bias for the x direction in random walk
-ACTIVE_KEEP_RATE = 0.2  # Rate at which deltas are dropped
+ACTIVE_KEEP_RATE = 1  # Rate at which deltas are dropped
 MAX_INDEX_DIFF = 200
 # NOISY_SOURCE_MATRIX = True
 
@@ -349,34 +348,18 @@ def analyse_scores(N: int):
         # 1. Replace Coordinate with Random Noise
         # seq._coords_to_noise()
         # 1.2 Replace Coordinate with Contrsucted Spine Model
-        spine_model = SpineModel()
-        spine_coords, _ = spine_model.construct_spine_coords(
-            n_iter=ITERATIONS_SPINE,
-            iterations_per_residue=ITERATIONS_PER_RESIDUE_SPINE,
-            seq_str=seq.seq_str,
-            max_delta=MAX_DELTA_SPINE,
-        )
-        spine_matrix = coord_to_distance_matrix(coords_list_to_matrix(spine_coords))
-        # print("Spine Matrix: ", spine_matrix)
 
         target_matrix = seq.distance_matrix.clone()
         # print("Target Matrix: ", target_matrix)
-
-        # swap target matrix with spine matrix whee abs(i-j) < 5
-        for i in range(len(target_matrix)):
-            for j in range(len(target_matrix)):
-                if abs(i - j) < 5:
-                    target_matrix[i][j] = spine_matrix[i][j]
-
-        adjusted_coords, _ = adjust_coords(
-            n_iter=ITERATIONS,
-            input_coords=spine_coords,
-            target_matrix=target_matrix,
+        spine_model = SpineModel()
+        spine_coords, _ = spine_model.construct_spine_coords(
             temperature=TEMPERATURE,
-            active_keep_rate=ACTIVE_KEEP_RATE,
             iterations_per_residue=ITERATIONS_PER_RESIDUE_SPINE,
-            max_delta=MAX_DELTA,
+            seq_str=seq.seq_str,
+            max_delta=MAX_DELTA_SPINE,
+            target_matrix=target_matrix,
         )
+
         target_pdb_path = "seq_output/sequence_source.pdb"
         generated_pdb_path = "seq_output/sequence_generatored.pdb"
         mirrored_pdb_path = "seq_output/sequence_mirrored.pdb"
@@ -385,10 +368,10 @@ def analyse_scores(N: int):
             coords=seq.coords, seq_str=seq.seq_str, save_path=target_pdb_path
         )
         Sequence.to_pdb(
-            coords=adjusted_coords, seq_str=seq.seq_str, save_path=generated_pdb_path
+            coords=spine_coords, seq_str=seq.seq_str, save_path=generated_pdb_path
         )
         Sequence.to_pdb(
-            coords=mirror(adjusted_coords),
+            coords=mirror(spine_coords),
             seq_str=seq.seq_str,
             save_path=mirrored_pdb_path,
         )
@@ -436,17 +419,18 @@ def analyse_one():
     # 1. Replace Coordinate with Random Noise
     # seq._coords_to_noise()
     # 1.2 Replace Coordinate with Contrsucted Spine Model
+    
+    target_matrix = seq.distance_matrix.clone()
+    
     spine_model: SpineModel = SpineModel()
     spine_coords, spine_recording = spine_model.construct_spine_coords(
-        n_iter=ITERATIONS_SPINE,
-        iterations_per_residue=ITERATIONS_PER_RESIDUE_SPINE,
         seq_str=seq.seq_str,
-        max_delta=MAX_DELTA_SPINE,
+        target_matrix=target_matrix
     )
     spine_matrix = coord_to_distance_matrix(coords_list_to_matrix(spine_coords))
     # print("Spine Matrix: ", spine_matrix)
 
-    target_matrix = seq.distance_matrix.clone()
+    
     # print("Target Matrix: ", target_matrix)
 
     # swap target matrix with spine matrix whee abs(i-j) < 5
@@ -455,15 +439,17 @@ def analyse_one():
             if abs(i - j) < 5:
                 target_matrix[i][j] = spine_matrix[i][j]
 
-    adjusted_coords, recording = adjust_coords(
-        n_iter=ITERATIONS,
-        input_coords=spine_coords,
-        target_matrix=target_matrix,
-        temperature=TEMPERATURE,
-        # iterations_per_residue=ITERATIONS_PER_RESIDUE,
-        active_keep_rate=ACTIVE_KEEP_RATE,
-        max_delta=MAX_DELTA,
-    )
+    adjusted_coords = spine_coords
+    recording = spine_recording
+    # adjusted_coords, recording = adjust_coords(
+    #     n_iter=ITERATIONS,
+    #     input_coords=spine_coords,
+    #     target_matrix=target_matrix,
+    #     temperature=TEMPERATURE,
+    #     # iterations_per_residue=ITERATIONS_PER_RESIDUE,
+    #     active_keep_rate=ACTIVE_KEEP_RATE,
+    #     max_delta=MAX_DELTA,
+    # )
 
 
     target_pdb_path = "seq_output/sequence_source.pdb"
