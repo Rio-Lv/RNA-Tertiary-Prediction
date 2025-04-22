@@ -545,6 +545,8 @@ def create_video(
             [Vector(c[0].item(), c[1].item(), c[2].item()) for c in frame_tensor]
         )
     num_frames = len(recording_coords)
+    # apply chirality correction
+    recording_coords = [correct_chirality(coords) for coords in recording_coords]
 
     # --- compute bounding box with padding as before ---
     x_vals = [v.x for v in target_coords]
@@ -597,7 +599,7 @@ def create_video(
 
     def update(frame):
         if frame % 10 == 0:
-            print(f"Processing frame {frame+1}/{num_frames}")
+            print(f"Processing frame {frame}/{num_frames}")
         current = align(recording_coords[frame], target_coords)
 
         # Build per-base groups by zipping seq_str & coords

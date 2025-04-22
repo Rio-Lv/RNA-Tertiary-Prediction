@@ -24,7 +24,7 @@ from SpineModel import SpineModel
 os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
 # ====== CONSTANTS ======
-SUBSET_LEN = 77
+SUBSET_LEN = 450
 
 N_SEQUENCES = 10
 # N_NEAREST_NEIGBORS = 30  # If using n nearest neighbors for adjustment
@@ -563,11 +563,11 @@ def analyse_one():
 if __name__ == "__main__":
     # ================ Test 1 ==============
     # print("Testing one sequence")
-    # analyse_one()
+    analyse_one()
     # =============== Test 2 ==============
 
     # print("Testing multiple sequence lengths scores")
-    analyse_scores(100)
+    # analyse_scores(100)
 
     # =============== Test 3 ==============
     # print("Loading Sequence Dataset")

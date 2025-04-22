@@ -21,7 +21,7 @@ TEMPERATURE = 0.1
 ACITVE_KEEP_RATE_SPINE = 1
 ACITVE_KEEP_RATE_SETTLE = 0.1
 
-MAX_INDEX_DIFF = 30
+MAX_INDEX_DIFF = 32
 
 
 # ------------------------- hyper‑parameters ------------------------- #
@@ -272,7 +272,7 @@ class SpineModel(nn.Module):
 
         for i in range(len(seq_str)):
             if i % 20 == 0:
-                print(f"Nucleotide {i+1}/{len(seq_str)}")
+                print(f"Nucleotide {i}/{len(seq_str)}")
             if i < SPINE_WINDOW_SIZE:
                 coords.append(
                     Vector(
