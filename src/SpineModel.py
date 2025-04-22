@@ -15,13 +15,13 @@ from tools import *
 
 EPS = 1e-8  # avoids 0‑division
 MAX_DELTA = 0.1  # clip per‑step movement (Å)
-SPINE_ITERATIONS_PER_RESIDUE = 50
-ITERATIONS_TO_SETTLE = 1000
+SPINE_ITERATIONS_PER_RESIDUE = 20
+ITERATIONS_TO_SETTLE = 2000
 TEMPERATURE = 0.1
 ACITVE_KEEP_RATE_SPINE = 1
 ACITVE_KEEP_RATE_SETTLE = 0.1
 
-MAX_INDEX_DIFF = 1
+MAX_INDEX_DIFF = 0
 
 
 # ------------------------- hyper‑parameters ------------------------- #

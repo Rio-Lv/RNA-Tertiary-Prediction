@@ -33,28 +33,28 @@ N_SEQUENCES = 10
 
 ITERATIONS = 6000
 
-ITERATIONS_PER_RESIDUE = 50
+# ITERATIONS_PER_RESIDUE = 50
 
-MAX_DELTA = 0.5
-MAX_DELTA_SPINE = 0.5
+# MAX_DELTA = 0.5
+# MAX_DELTA_SPINE = 0.5
 
 TEMPERATURE = 0.1
 
 LABELS_PATH = "data/train_labels.csv"
 SEQUENCES_PATH = "data/train_sequences.csv"
 
-SEQUENCE_INDEX = 868
+# SEQUENCE_INDEX = 868
 
 # MAX_SPINE_SPACE = 5  # Maximum distance between two points in the spine
 
-OPEN_PLOT = True  # If True, will open a plot window for each sequence
-GRAVITY = 0.001
+# OPEN_PLOT = True  # If True, will open a plot window for each sequence
+# GRAVITY = 0.001
 
 VIDEO_SPEED = ITERATIONS // 200  # Speed of the video in frames per second
 
 DIR_BIAS_X = 1  # Bias for the x direction in random walk
-ACTIVE_KEEP_RATE = 0.1  # Rate at which deltas are dropped
-MAX_INDEX_DIFF = 200
+# ACTIVE_KEEP_RATE = 0.1  # Rate at which deltas are dropped
+# MAX_INDEX_DIFF = 200
 # NOISY_SOURCE_MATRIX = True
 
 SCORES_MIN_SEQ_LEN = 50
@@ -181,52 +181,52 @@ class Sequence:
                 self.coords[i].z = random.uniform(-noise, noise)
             return self.coords
 
-    def _primary_test(self):
-        target_coords = self.coords.copy()
-        input_coords = self._coords_to_noise()
+    # def _primary_test(self):
+    #     target_coords = self.coords.copy()
+    #     input_coords = self._coords_to_noise()
 
-        coords_adjusted, recording = adjust_coords(
-            n_iter=ITERATIONS,
-            seq_str=self.seq_str,
-            input_coords=input_coords,
-            target_matrix=self.distance_matrix,
-            temperature=TEMPERATURE,
-            active_keep_rate=ACTIVE_KEEP_RATE,
-            max_delta=MAX_DELTA,
-            iterations_per_residue=ITERATIONS_PER_RESIDUE,
-            max_index_diff=MAX_INDEX_DIFF,
-        )
+    #     coords_adjusted, recording = adjust_coords(
+    #         n_iter=ITERATIONS,
+    #         seq_str=self.seq_str,
+    #         input_coords=input_coords,
+    #         target_matrix=self.distance_matrix,
+    #         temperature=TEMPERATURE,
+    #         active_keep_rate=ACTIVE_KEEP_RATE,
+    #         max_delta=MAX_DELTA,
+    #         iterations_per_residue=ITERATIONS_PER_RESIDUE,
+    #         max_index_diff=MAX_INDEX_DIFF,
+    #     )
 
-        # Save the adjusted coordinates to a PDB file
-        self.to_pdb(
-            coords_adjusted,
-            self.seq_str,
-            save_path="seq_output/seq_generated.pdb",
-        )
-        # Save the original coordinates to a PDB file
-        self.to_pdb(
-            target_coords,
-            self.seq_str,
-            save_path="seq_output/seq_target.pdb",
-        )
-        self.compute_similarity_us_align(
-            gen_path="seq_output/seq_generated.pdb",
-            target_path="seq_output/seq_target.pdb",
-        )
-        create_video(
-            target_coords=target_coords,
-            recording=recording,
-            seq_str=self.seq_str,
-            speed=VIDEO_SPEED,
-            save_path="seq_output/adjustment.mp4",
-            interval=33,
-        )
+    #     # Save the adjusted coordinates to a PDB file
+    #     self.to_pdb(
+    #         coords_adjusted,
+    #         self.seq_str,
+    #         save_path="seq_output/seq_generated.pdb",
+    #     )
+    #     # Save the original coordinates to a PDB file
+    #     self.to_pdb(
+    #         target_coords,
+    #         self.seq_str,
+    #         save_path="seq_output/seq_target.pdb",
+    #     )
+    #     self.compute_similarity_us_align(
+    #         gen_path="seq_output/seq_generated.pdb",
+    #         target_path="seq_output/seq_target.pdb",
+    #     )
+    #     create_video(
+    #         target_coords=target_coords,
+    #         recording=recording,
+    #         seq_str=self.seq_str,
+    #         speed=VIDEO_SPEED,
+    #         save_path="seq_output/adjustment.mp4",
+    #         interval=33,
+    #     )
 
-        plot_coords_list(
-            seq_str=self.seq_str,
-            coords=coords_adjusted,
-            reference_coords=target_coords,
-        )
+    #     plot_coords_list(
+    #         seq_str=self.seq_str,
+    #         coords=coords_adjusted,
+    #         reference_coords=target_coords,
+    #     )
 
 
 # ====== DATA PPEPERATION ======
@@ -419,10 +419,7 @@ def analyse_scores(N: int):
         # print("Target Matrix: ", target_matrix)
         spine_model = SpineModel()
         spine_coords, _ = spine_model.construct_spine_coords(
-            temperature=TEMPERATURE,
-            iterations_per_residue=ITERATIONS_PER_RESIDUE,
             seq_str=seq.seq_str,
-            max_delta=MAX_DELTA_SPINE,
             target_matrix=target_matrix,
         )
         adjusted_coords,_ = correct_chirality(spine_coords)

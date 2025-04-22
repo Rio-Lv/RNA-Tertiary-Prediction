@@ -310,8 +310,6 @@ def adjust_coords(
     temperature: float,
     active_keep_rate: float,
     max_delta: float,
-    iterations_per_residue: int = None,
-    # adjust_last: bool = False,
 ) -> Tuple[list[Vector], list[Tensor]]:
     """
     Make input_coords match the distance matrix via simulation.
@@ -334,13 +332,7 @@ def adjust_coords(
     max_index = length
     for curr in range(n_iter):
 
-        # if iterations_per_residue:
-        #     max_index = min(curr // iterations_per_residue + 4, length)
-
         active_coord_matrix = coord_matrix[:max_index].clone()  # rows only
-
-        # if len(active_coord_matrix) < length:
-        #     active_coord_matrix = sub_next_coord(active_coord_matrix)
 
         if curr % 500 == 0 and curr >= 500:
             print(f"Iteration {curr }/{n_iter}")
@@ -350,7 +342,13 @@ def adjust_coords(
         active_distance_matrix = active_distance_matrix
         # 2. Apply Heat to the Structure.
         active_distance_matrix = apply_heat(active_distance_matrix, temperature)
-        # 2.1. Drop some deltas to simulate imperfect information
+        
+        # 2.1 Create matrix of 5 to assume all distances are 5 then multiply by stability matrix
+        distant_pull_matrix = torch.full(
+            (active_distance_matrix.shape[0], active_distance_matrix.shape[1]), 1.0
+        )
+        distant_pull_matrix *= 1 - stability_matrix
+        # 2.2. Drop some deltas to simulate imperfect information
         active_distance_matrix = drop_random(
             active_distance_matrix, keep_rate=active_keep_rate
         )
