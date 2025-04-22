@@ -21,7 +21,7 @@ TEMPERATURE = 0.1
 ACITVE_KEEP_RATE_SPINE = 1
 ACITVE_KEEP_RATE_SETTLE = 0.1
 
-MAX_INDEX_DIFF = 32
+MAX_INDEX_DIFF = 1
 
 
 # ------------------------- hyper‑parameters ------------------------- #
@@ -234,9 +234,8 @@ class SpineModel(nn.Module):
         # plot_distance_heatmap(
         #     distance_matrix, title=f"Distance matrix for {seq_str}"
         # )
-        return (
-            distance_matrix * 2
-        )  # TODO: Seems that result are too small otherwise? but WHY??
+        return distance_matrix 
+       
 
     # -------------------------------------------------------------------- #
     #  main driver
@@ -258,40 +257,44 @@ class SpineModel(nn.Module):
         """
         coords: list[Vector] = []
         full_recording: list[Tensor] = []
-        distance_matrix = self.construct_distance_matrix(seq_str)
+        spine_distance_matrix = self.construct_distance_matrix(seq_str)
+        distance_matrix = torch.zeros(len(seq_str), len(seq_str))
         # Use Real Matrix but Replace Spine
         if target_matrix is not None:
             for i in range(len(seq_str)):
                 for j in range(len(seq_str)):
-                    if abs(i - j) > SPINE_WINDOW_SIZE:
+                    if abs(i - j) < MAX_INDEX_DIFF:
                         distance_matrix[i, j] = target_matrix[i, j]
                         
-                    if abs(i-j) > MAX_INDEX_DIFF:
-                        distance_matrix[i, j] = 0
+                    if abs(i - j) < SPINE_WINDOW_SIZE:
+                        distance_matrix[i, j] = spine_distance_matrix[i, j]
+                        
 
-
+        noise = 0.1
         for i in range(len(seq_str)):
             if i % 20 == 0:
                 print(f"Nucleotide {i}/{len(seq_str)}")
             if i < SPINE_WINDOW_SIZE:
                 coords.append(
                     Vector(
-                        random.uniform(-1, 1),
-                        random.uniform(-1, 1),
-                        random.uniform(-1, 1),
+                        i*3.5+random.uniform(-noise, noise),
+                        random.uniform(-noise, noise),
+                        random.uniform(-noise, noise),
                     )
                 )
             else:
-                coord = coords[-1].copy()
-                noise = Vector(
-                    random.uniform(-1, 1),
-                    random.uniform(-1, 1),
-                    random.uniform(-1, 1),
-                )
-                coord.add(noise)
-                coords.append(coord)
+                coord_1 = coords[-1].copy()
+                coord_2 = coords[-2].copy()
+                dx = coord_2.x - coord_1.x
+                dy = coord_2.y - coord_1.y
+                dz = coord_2.z - coord_1.z
+                coord_1.x -= dx + random.uniform(-noise, noise)
+                coord_1.y -= dy + random.uniform(-noise, noise)
+                coord_1.z -= dz + random.uniform(-noise, noise)
+                coords.append(coord_1)
                 coords, recording = adjust_coords(
                     n_iter=iterations_per_residue,
+                    seq_str=seq_str[:len(coords)],
                     input_coords=coords,
                     target_matrix=distance_matrix,
                     temperature=temperature,
@@ -303,6 +306,7 @@ class SpineModel(nn.Module):
 
         settled_coords, settled_recording = adjust_coords(
             n_iter=iterations_to_settle,
+            seq_str=seq_str,
             input_coords=coords,
             target_matrix=distance_matrix,
             temperature=temperature,

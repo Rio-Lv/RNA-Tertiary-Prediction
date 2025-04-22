@@ -24,7 +24,7 @@ from SpineModel import SpineModel
 os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
 # ====== CONSTANTS ======
-SUBSET_LEN = 450
+SUBSET_LEN = 30
 
 N_SEQUENCES = 10
 # N_NEAREST_NEIGBORS = 30  # If using n nearest neighbors for adjustment
@@ -33,8 +33,7 @@ N_SEQUENCES = 10
 
 ITERATIONS = 6000
 
-ITERATIONS_PER_RESIDUE = 4
-ITERATIONS_PER_RESIDUE_SPINE = 5
+ITERATIONS_PER_RESIDUE = 50
 
 MAX_DELTA = 0.5
 MAX_DELTA_SPINE = 0.5
@@ -188,6 +187,7 @@ class Sequence:
 
         coords_adjusted, recording = adjust_coords(
             n_iter=ITERATIONS,
+            seq_str=self.seq_str,
             input_coords=input_coords,
             target_matrix=self.distance_matrix,
             temperature=TEMPERATURE,
@@ -298,7 +298,7 @@ class SequenceDataset:
         self.subset_sequences = sequences
         return sequences
 
-    def get_random_subset(self, retries:int = 0, subset_len:int = SUBSET_LEN):
+    def get_random_subset(self, retries: int = 0, subset_len: int = SUBSET_LEN):
         if retries > 100:
             return print("retries get random subset exceeded 100")
         random_index = random.randint(0, len(self.subset_sequences) - 1)
@@ -308,7 +308,7 @@ class SequenceDataset:
         while len(seq.coords) < subset_len:
             random_index = random.randint(0, len(self.subset_sequences) - 1)
             seq = self.subset_sequences[random_index]
-            
+
             curr_try += 1
             if curr_try > max_tries:
                 print("Max tries reached, returning random sequence.")
@@ -317,8 +317,8 @@ class SequenceDataset:
         # ensure seq does not contain nan in vectors
         for i, coord in enumerate(seq.coords):
             if math.isnan(coord.x) or math.isnan(coord.y) or math.isnan(coord.z):
-                return self.get_random_subset(retries=retries+1)
-        
+                return self.get_random_subset(retries=retries + 1)
+
         print(f"Random Sequence: {random_index}")
         return seq
 
@@ -396,7 +396,6 @@ def analyse_scores(N: int):
     mirrored_scores = []
     for iter in range(N):
 
-
         # TODO: Work on grabbing full sequence instead of subset
         # seq_dataset = SequenceDataset(n_sequences=1, subset_len=SCORES_MIN_SEQ_LEN)
         # random_seq_id = random.choice(
@@ -405,9 +404,11 @@ def analyse_scores(N: int):
         #     )
         # )
         # seq = seq_dataset.get_sequence(seq_id=random_seq_id)
-        
-        random_subset_len = random.randint(SCORES_MIN_SEQ_LEN,SCORES_MAX_SEQ_LEN)
-        seq_dataset = SequenceDataset(n_sequences=N_SEQUENCES, subset_len=random_subset_len)
+
+        random_subset_len = random.randint(SCORES_MIN_SEQ_LEN, SCORES_MAX_SEQ_LEN)
+        seq_dataset = SequenceDataset(
+            n_sequences=N_SEQUENCES, subset_len=random_subset_len
+        )
 
         # print(len(seq_dataset.subset_sequences))
         # Initialize a real sequence (Distance Matrix Assigned)
@@ -419,17 +420,19 @@ def analyse_scores(N: int):
         spine_model = SpineModel()
         spine_coords, _ = spine_model.construct_spine_coords(
             temperature=TEMPERATURE,
-            iterations_per_residue=ITERATIONS_PER_RESIDUE_SPINE,
+            iterations_per_residue=ITERATIONS_PER_RESIDUE,
             seq_str=seq.seq_str,
             max_delta=MAX_DELTA_SPINE,
             target_matrix=target_matrix,
         )
-        adjusted_coords = correct_chirality(spine_coords)
+        adjusted_coords,_ = correct_chirality(spine_coords)
         target_pdb_path = "seq_output/sequence_source.pdb"
         generated_pdb_path = "seq_output/sequence_generatored.pdb"
         mirrored_pdb_path = "seq_output/sequence_mirrored.pdb"
 
-        Sequence.to_pdb(coords=seq.coords, seq_str=seq.seq_str, save_path=target_pdb_path)
+        Sequence.to_pdb(
+            coords=seq.coords, seq_str=seq.seq_str, save_path=target_pdb_path
+        )
         Sequence.to_pdb(
             coords=adjusted_coords, seq_str=seq.seq_str, save_path=generated_pdb_path
         )
@@ -440,13 +443,15 @@ def analyse_scores(N: int):
         )
 
         score = compute_similarity(path_1=generated_pdb_path, path_2=target_pdb_path)
-        
+
         if score == 0:
             print("SPINE COORDS", spine_coords)
             print("ADJUSTED COORDS", adjusted_coords)
             break
-        
-        mirror_score = compute_similarity(path_1=mirrored_pdb_path, path_2=target_pdb_path)
+
+        mirror_score = compute_similarity(
+            path_1=mirrored_pdb_path, path_2=target_pdb_path
+        )
         print(f"SCORE: {score} --   MIRROR SCORE: {mirror_score}")
         print(
             f"=== ANALYSED {iter+1} / {N} - Score {score} - Mirror Score {mirror_score} ==="
@@ -486,44 +491,17 @@ def analyse_scores(N: int):
 
 
 def analyse_one():
-    # Test the Sequence Dataset class
     seq_dataset = SequenceDataset(n_sequences=N_SEQUENCES, subset_len=SUBSET_LEN)
-    # print(len(seq_dataset.subset_sequences))
-    # Initialize a real sequence (Distance Matrix Assigned)
     seq = seq_dataset.get_random_subset()
-    # seq.test_adjust_coords_video()
-    # 1. Replace Coordinate with Random Noise
-    # seq._coords_to_noise()
-    # 1.2 Replace Coordinate with Contrsucted Spine Model
-
     target_matrix = seq.distance_matrix.clone()
- 
+
     spine_model: SpineModel = SpineModel()
     spine_coords, spine_recording = spine_model.construct_spine_coords(
         seq_str=seq.seq_str, target_matrix=target_matrix
     )
-    # spine_matrix = coord_to_distance_matrix(coords_list_to_matrix(spine_coords))
-    # print("Spine Matrix: ", spine_matrix)
 
-    # print("Target Matrix: ", target_matrix)
-
-    # # swap target matrix with spine matrix whee abs(i-j) < 5
-    # for i in range(len(target_matrix)):
-    #     for j in range(len(target_matrix)):
-    #         if abs(i - j) < 5:
-    #             target_matrix[i][j] = spine_matrix[i][j]
-
-    adjusted_coords = correct_chirality(spine_coords)
+    adjusted_coords,_ = correct_chirality(spine_coords)
     recording = spine_recording
-    # adjusted_coords, recording = adjust_coords(
-    #     n_iter=ITERATIONS,
-    #     input_coords=spine_coords,
-    #     target_matrix=target_matrix,
-    #     temperature=TEMPERATURE,
-    #     # iterations_per_residue=ITERATIONS_PER_RESIDUE,
-    #     active_keep_rate=ACTIVE_KEEP_RATE,
-    #     max_delta=MAX_DELTA,
-    # )
 
     target_pdb_path = "seq_output/sequence_source.pdb"
     generated_pdb_path = "seq_output/sequence_generatored.pdb"
@@ -555,7 +533,7 @@ def analyse_one():
 
     plot_coords_list(
         seq_str=seq.seq_str,
-        coords = adjusted_coords,
+        coords=adjusted_coords,
         reference_coords=seq.coords,
     )
 

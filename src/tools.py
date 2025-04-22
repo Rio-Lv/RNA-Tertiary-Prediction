@@ -213,6 +213,39 @@ def atomic_bounce(
     # Apply the shifts
     return coord_matrix + atom_shifts
 
+def compute_pair_strength_matrix(seq_str:str) -> Tensor:
+    """ 
+    Compute the pair strength matrix from a sequence string.
+    where A-U and G-C are 1
+    and G-U is 0.5
+    and the rest are 0
+    """
+    pair_strength_matrix = torch.zeros((len(seq_str), len(seq_str)))
+    for i in range(len(seq_str)):
+        for j in range(len(seq_str)):
+            if i == j:
+                continue
+            if (seq_str[i], seq_str[j]) in [("A", "U"), ("U", "A"), ("G", "C"), ("C", "G")]:
+                pair_strength_matrix[i][j] = 1
+            elif (seq_str[i], seq_str[j]) in [("G", "U"), ("U", "G")]:
+                pair_strength_matrix[i][j] = 0.5
+    return pair_strength_matrix
+
+def compute_stability_matrix(distance_matrix: Tensor, pair_strength_matrix:Tensor) -> Tensor:
+    # for all i,j in distance_matrix
+    # closer the distance is to stable_radius the close the value to 1
+    stable_radius = 5
+    dist = distance_matrix - stable_radius + EPS
+    dist = torch.abs(dist)
+    dist = 1/dist
+    # sigmoid the distance
+    dist = torch.sigmoid(dist)
+    # multiply by the pair strength matrix
+    stability = dist * pair_strength_matrix
+    return stability
+    
+    
+
 
 def apply_heat(distance_matrix: Tensor, temperature: float) -> Tensor:
     """
@@ -271,6 +304,7 @@ def sub_next_coord(active_coord_matrix: Tensor) -> Tensor:
 
 def adjust_coords(
     n_iter: int,
+    seq_str: str,
     input_coords: list[Vector],
     target_matrix: Tensor,
     temperature: float,
@@ -288,19 +322,25 @@ def adjust_coords(
     Only contributions from pairs with distances <= MAX_DISTANCE are considered.
     """
     coord_matrix = coords_list_to_matrix(input_coords)  # Changes every iteration
+    active_distance_matrix = coord_to_distance_matrix(coord_matrix)
+    pair_strength_matrix = compute_pair_strength_matrix(seq_str)
+
+    stability_matrix = compute_stability_matrix(
+        active_distance_matrix, pair_strength_matrix
+    )
     recording = []
     length, _ = coord_matrix.shape
 
     max_index = length
     for curr in range(n_iter):
 
-        if iterations_per_residue:
-            max_index = min(curr // iterations_per_residue + 4, length)
+        # if iterations_per_residue:
+        #     max_index = min(curr // iterations_per_residue + 4, length)
 
         active_coord_matrix = coord_matrix[:max_index].clone()  # rows only
 
-        if len(active_coord_matrix) < length:
-            active_coord_matrix = sub_next_coord(active_coord_matrix)
+        # if len(active_coord_matrix) < length:
+        #     active_coord_matrix = sub_next_coord(active_coord_matrix)
 
         if curr % 500 == 0 and curr >= 500:
             print(f"Iteration {curr }/{n_iter}")
@@ -315,11 +355,13 @@ def adjust_coords(
             active_distance_matrix, keep_rate=active_keep_rate
         )
 
+
         # 3. Compute Deltas Based on Target Distance Matrix
         deltas = compute_delta_matrix(
             coord_matrix=active_coord_matrix,
             target_distance_matrix=active_distance_matrix,
             max_delta=max_delta,
+            # stability_matrix = stability_matrix,
         )
         # 4. Add the deltas to the coordinates.
         active_coord_matrix[:max_index, :max_index] += deltas
@@ -546,7 +588,9 @@ def create_video(
         )
     num_frames = len(recording_coords)
     # apply chirality correction
-    recording_coords = [correct_chirality(coords) for coords in recording_coords]
+    _, flip = correct_chirality(recording_coords[-1])
+    if flip:
+        recording_coords = [mirror(coords) for coords in recording_coords]
 
     # --- compute bounding box with padding as before ---
     x_vals = [v.x for v in target_coords]
@@ -589,8 +633,8 @@ def create_video(
         xo = [v.x for v in target_coords]
         yo = [v.y for v in target_coords]
         zo = [v.z for v in target_coords]
-        ax.scatter(xo, yo, zo, color="gray", s=100, alpha=0.1)
-        ax.plot(xo, yo, zo, color="gray", alpha=0.1, linewidth=2)
+        ax.scatter(xo, yo, zo, color="black", s=100, alpha=0.05)
+        ax.plot(xo, yo, zo, color="black", alpha=0.05, linewidth=2)
         ax.set_xlabel("X")
         ax.set_ylabel("Y")
         ax.set_zlabel("Z")
@@ -618,8 +662,8 @@ def create_video(
         xo = [v.x for v in target_coords]
         yo = [v.y for v in target_coords]
         zo = [v.z for v in target_coords]
-        ax.scatter(xo, yo, zo, color="gray", s=100, alpha=0.3)
-        ax.plot(xo, yo, zo, color="gray", alpha=0.7, linewidth=2)
+        ax.scatter(xo, yo, zo, color="black", s=100, alpha=0.05)
+        ax.plot(xo, yo, zo, color="black", alpha=0.05, linewidth=2)
 
         # Scatter each base in its color
         for base, color in base_colors.items():
@@ -743,8 +787,11 @@ def correct_chirality(coords: List[Vector]) -> List[Vector]:
     mean_sign = float(np.mean(np.sign(non_zero))) if non_zero.size else 0.0
 
     # Reflect x-axis if left-handed
+    flip = False
     if mean_sign < 0:
         arr[:, 0] *= -1.0
+        flip = True
 
     # Convert back to List[Vector]
-    return [Vector.from_array(row) for row in arr]
+    corrected = [Vector.from_array(row) for row in arr]
+    return corrected, flip
