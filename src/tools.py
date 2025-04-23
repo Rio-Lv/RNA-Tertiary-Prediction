@@ -339,6 +339,7 @@ def adjust_coords(
         recording.append(active_coord_matrix.clone())
 
     # Update self.coords from the coord_matrix.
+    coord_matrix = coord_matrix.detach().cpu().numpy()
     for i in range(len(input_coords)):
         input_coords[i] = Vector(
             coord_matrix[i][0], coord_matrix[i][1], coord_matrix[i][2]

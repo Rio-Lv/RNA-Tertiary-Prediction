@@ -29,7 +29,7 @@ else:
 os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
 # ====== CONSTANTS ======
-SUBSET_LEN = 30
+SUBSET_LEN = 100
 
 N_SEQUENCES = 10
 # N_NEAREST_NEIGBORS = 30  # If using n nearest neighbors for adjustment
@@ -260,9 +260,19 @@ class SequenceDataset:
         # using a windowed approach
         sequences = []
         n_sequences = self.n_sequences
-
+        
+        used_indices = {}
+        max_index_swap = 1000
+        curr_index_swap = 0
         for iter in range(len(sequences_df)):
-
+            # Randomly select a sequence --- 
+            if curr_index_swap > max_index_swap:
+                break
+            seq_index = random.randint(0, len(sequences_df) - 1)
+            if seq_index in used_indices:
+                seq_index = random.randint(0, len(sequences_df) - 1)
+            curr_index_swap += 1
+            # ------------------------------
             if len(sequences) >= n_sequences:
                 print("Target number of sequences reached.")
                 break
@@ -497,12 +507,13 @@ def analyse_scores(N: int):
 def analyse_one():
     seq_dataset = SequenceDataset(n_sequences=N_SEQUENCES, subset_len=SUBSET_LEN)
     seq = seq_dataset.get_random_subset()
-    # target_matrix = seq.distance_matrix.clone().to(device)
+    target_matrix = seq.distance_matrix.clone().to(device)
 
     spine_model = SpineModelBig()
     spine_model.to(device)
     spine_coords, spine_recording = spine_model.construct_spine_coords(
-        seq_str=seq.seq_str
+        seq_str=seq.seq_str,
+        target_matrix=target_matrix,
     )
 
     adjusted_coords,_ = correct_chirality(spine_coords)

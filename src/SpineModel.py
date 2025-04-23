@@ -32,16 +32,16 @@ MAX_INDEX_DIFF = 0
 
 
 # ------------------------- hyper‑parameters ------------------------- #
-TRAIN = False
+TRAIN = True
 
 # flip either flag to *True* before running to wipe the corresponding cache
-RESET_DATA = False
+RESET_DATA = True
 RESET_MODEL = False
 
 SPINE_TRAIN_EPOCHS = 3_000
 SPINE_N_SEQUENCES = 25_000
-SPINE_MODEL_LR = 0.005
-SPINE_TRAIN_BATCH_SIZE = 64**2
+SPINE_MODEL_LR = 0.001
+SPINE_TRAIN_BATCH_SIZE = 128**2
 SPINE_DATA_TRAIN_FRAC = 0.8
 
 SPINE_WINDOW_SIZE = 5

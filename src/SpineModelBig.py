@@ -24,13 +24,13 @@ print(f"Using device: {device}")
 
 EPS = 1e-8  # avoids 0‑division
 MAX_DELTA = 0.1  # clip per‑step movement (Å)
-SPINE_ITERATIONS_PER_RESIDUE = 20
+SPINE_ITERATIONS_PER_RESIDUE = 25
 ITERATIONS_TO_SETTLE = 1000
 TEMPERATURE = 0.1
 ACITVE_KEEP_RATE_SPINE = 1
 ACITVE_KEEP_RATE_SETTLE = 0.1
 
-MAX_INDEX_DIFF = 0
+MAX_INDEX_DIFF = 50
 
 
 # ------------------------- hyper‑parameters ------------------------- #
@@ -286,7 +286,6 @@ class SpineModelBig(nn.Module):
         # plot_distance_heatmap(spine_distance_matrix)
         distance_matrix = torch.zeros(len(seq_str), len(seq_str)).to(device)
         # Use Real Matrix but Replace Spine
-        # Use Real Matrix but Replace Spine
         if target_matrix is not None:
             for i in range(len(seq_str)):
                 for j in range(len(seq_str)):
@@ -313,7 +312,7 @@ class SpineModelBig(nn.Module):
         for i in range(len(seq_str)):
             if i % 20 == 0:
                 print(f"Nucleotide {i}/{len(seq_str)}")
-            if i < SPINE_WINDOW_SIZE:
+            if i < 3:
                 coords.append(
                     Vector(
                         i*3.5+random.uniform(-noise, noise),
@@ -327,9 +326,9 @@ class SpineModelBig(nn.Module):
                 dx = coord_2.x - coord_1.x
                 dy = coord_2.y - coord_1.y
                 dz = coord_2.z - coord_1.z
-                coord_1.x -= dx + random.uniform(-noise, noise)
-                coord_1.y -= dy + random.uniform(-noise, noise)
-                coord_1.z -= dz + random.uniform(-noise, noise)
+                coord_1.x += dx + random.uniform(-noise, noise)
+                coord_1.y += dy + random.uniform(-noise, noise)
+                coord_1.z += dz + random.uniform(-noise, noise)
                 coords.append(coord_1)
                 coords, recording = adjust_coords(
                     n_iter=iterations_per_residue,
