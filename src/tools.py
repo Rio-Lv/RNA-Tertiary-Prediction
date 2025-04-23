@@ -13,6 +13,13 @@ from typing import Tuple, List
 import time
 import matplotlib.animation as animation
 
+
+if torch.backends.mps.is_available() and torch.backends.mps.is_built():
+    device = torch.device("mps")
+else:
+    device = torch.device("cpu")
+
+
 EPS = 1e-8
 VIDEO_PADDING = 0.25
 MIN_BOUNCE_DISTANCE = 3.5  # Minimum distance between atoms after bounce
@@ -84,7 +91,7 @@ def encode_str(seq_str: str):
         seq_str
     ), "Length of tensor does not match length of string"
     assert len(tensor[0]) == 4, "Length of tensor does not match length of encoding"
-    return Tensor(tensor)
+    return Tensor(tensor).to(device)
 
 
 def coords_list_to_matrix(coords: list[Vector]) -> Tensor:
@@ -96,7 +103,7 @@ def coords_list_to_matrix(coords: list[Vector]) -> Tensor:
     coord_matrix = []
     for coord in coords:
         coord_matrix.append([coord.x, coord.y, coord.z])
-    return Tensor(coord_matrix)
+    return Tensor(coord_matrix).to(device)
 
 
 def coord_matrix_to_list(coord_matrix: Tensor) -> list[Vector]:
@@ -120,12 +127,13 @@ def coord_to_distance_matrix(coord_matrix: Tensor) -> Tensor:
     # Compute pairwise distances using broadcasting
     dist = torch.norm(coord_matrix.unsqueeze(0) - coord_matrix.unsqueeze(1), dim=2)
 
-    return dist
+    return dist.to(device)
 
 
 def plot_distance_heatmap(
     distance_matrix: torch.Tensor, title: str = "Distance matrix"
 ) -> None:
+    distance_matrix = distance_matrix.cpu()
     """Plot a square heat-map for a (LxL) distance matrix."""
     plt.figure()
     plt.imshow(distance_matrix.cpu(), aspect="equal")
@@ -156,7 +164,7 @@ def compute_delta_matrix(
     scale = max_delta / (mags + EPS)
     deltas = deltas * scale
 
-    return deltas
+    return deltas.to(device)
 
 
 def atomic_bounce(
@@ -217,7 +225,7 @@ def apply_heat(distance_matrix: Tensor, temperature: float) -> Tensor:
     """
     Apply Gaussian noise to the distance matrix.
     """
-    noise = torch.normal(0, temperature, size=distance_matrix.shape)
+    noise = torch.normal(0, temperature, size=distance_matrix.shape, device=device)
     # Add noise to the distance matrix
     distance_matrix += noise
     return distance_matrix
@@ -228,7 +236,7 @@ def drop_random(active_distances: Tensor, keep_rate: float) -> Tensor:
     To be used on deltas which is of shape [N, N, 3].
     Randomly drop elements from a tensor with a given probability.
     """
-    mask = torch.rand(active_distances.shape) < keep_rate
+    mask = torch.rand(active_distances.shape, device=device) < keep_rate
     active_distances = active_distances * mask
     return active_distances
 
@@ -450,49 +458,58 @@ def plot_coords_list(
 ):
     """
     Plot a 3D sequence:
-      • reference_coords in faint gray (alpha=0.1) if provided
+      • reference_coords in faint gray (alpha=0.5) if provided
       • coords path in black
       • points colored by seq_str bases (A/C/G/U)
-
-    Parameters:
-      seq_str:          length-N string of A/C/G/U
-      coords:           list of N Vector
-      reference_coords: optional list of N Vector drawn in gray
     """
+    # If you have a reference, align your coords to it
     if reference_coords is not None:
         coords = align(coords, reference_coords)
-    # sanity checks
+
     N = len(seq_str)
     if len(coords) != N:
         raise ValueError(f"`coords` length ({len(coords)}) != seq_str length ({N})")
-    if reference_coords and len(reference_coords) != N:
+    if reference_coords is not None and len(reference_coords) != N:
         raise ValueError("`reference_coords` must match length of `seq_str`")
 
-    # mapping bases → colors
+    # Helper to extract Python floats from Vector components
+    def to_float(x):
+        # if it's a tensor, bring to CPU then .item()
+        if hasattr(x, "cpu"):
+            return x.detach().cpu().item()
+        return float(x)
+
+    # Convert all coords to lists of floats up front
+    coords_f = [Vector(to_float(v.x), to_float(v.y), to_float(v.z)) for v in coords]
+    ref_f = None
+    if reference_coords is not None:
+        ref_f = [Vector(to_float(v.x), to_float(v.y), to_float(v.z)) for v in reference_coords]
+
+    # Base→color mapping
     base_color_map = {"A": A_COLOR, "C": C_COLOR, "G": G_COLOR, "U": U_COLOR}
 
     fig = plt.figure()
     ax = fig.add_subplot(111, projection="3d")
 
-    # 1) reference in faint gray
-    if reference_coords:
-        xr = [v.x for v in reference_coords]
-        yr = [v.y for v in reference_coords]
-        zr = [v.z for v in reference_coords]
+    # 1) reference path in gray
+    if ref_f is not None:
+        xr = [v.x for v in ref_f]
+        yr = [v.y for v in ref_f]
+        zr = [v.z for v in ref_f]
         ax.scatter(xr, yr, zr, color="gray", alpha=0.5, s=100, label="Reference Points")
         ax.plot(xr, yr, zr, color="gray", alpha=0.5, linewidth=2, label="Reference Path")
 
     # 2) main path in black
-    x = [v.x for v in coords]
-    y = [v.y for v in coords]
-    z = [v.z for v in coords]
+    x = [v.x for v in coords_f]
+    y = [v.y for v in coords_f]
+    z = [v.z for v in coords_f]
     ax.plot(x, y, z, color="black", alpha=0.7, linewidth=2, label="Coords Path")
 
-    # 3) scatter colored by base
-    base_groups = {b: [] for b in base_color_map}
-    for base, vec in zip(seq_str, coords):
+    # 3) scatter by base
+    base_groups: dict[str, list[Vector]] = {b: [] for b in base_color_map}
+    for base, v in zip(seq_str, coords_f):
         if base in base_groups:
-            base_groups[base].append(vec)
+            base_groups[base].append(v)
 
     for base, group in base_groups.items():
         if not group:
@@ -500,22 +517,18 @@ def plot_coords_list(
         xb = [v.x for v in group]
         yb = [v.y for v in group]
         zb = [v.z for v in group]
-        ax.scatter(xb, yb, zb, color=base_color_map[base], s=100, label=f"Coords {base}")
+        ax.scatter(xb, yb, zb,
+                   color=base_color_map[base],
+                   s=100,
+                   label=f"{base}")
 
-    # decorate
+    # Labels & legend
     ax.set_xlabel("X")
     ax.set_ylabel("Y")
     ax.set_zlabel("Z")
     ax.set_title("3D Vector Plot")
-
-    # push legend outside
     plt.subplots_adjust(right=0.75)
-    ax.legend(
-        loc="upper left",
-        bbox_to_anchor=(1.05, 1.0),
-        borderaxespad=0.0
-    )
-
+    ax.legend(loc="upper left", bbox_to_anchor=(1.05, 1.0), borderaxespad=0.0)
     plt.show()
     
 def create_video(
@@ -526,141 +539,143 @@ def create_video(
     save_path: str,
     interval: int = 33,
 ):
-    assert len(seq_str) == len(
-        target_coords
-    ), "seq_str must match length of target_coords"
+    """
+    Animate the adjustment process from `recording` towards `target_coords`.
+
+    - recording: list of frames, each either a torch.Tensor (N×3) or a numpy array
+    - target_coords: list of Vector(x,y,z), possibly holding .x/.y/.z as tensors
+    """
+
+    assert len(seq_str) == len(target_coords), "seq_str must match target length"
     start_time = time.time()
 
-    # Decimate the recording by speed
+    # ─── 1) Coerce ALL recorded frames to numpy arrays ────────────────
+    rec_np: list[np.ndarray] = []
+    for frame in recording:
+        if isinstance(frame, np.ndarray):
+            rec_np.append(frame)
+        else:
+            # torch.Tensor -> CPU numpy
+            rec_np.append(frame.detach().cpu().numpy())
+
+    # ─── 2) Coerce target_coords to Python floats ────────────────────
+    def to_vector_f(v: Vector) -> Vector:
+        # if components are tensors, extract .item(), else cast float()
+        x = v.x.cpu().item() if hasattr(v.x, "cpu") else float(v.x)
+        y = v.y.cpu().item() if hasattr(v.y, "cpu") else float(v.y)
+        z = v.z.cpu().item() if hasattr(v.z, "cpu") else float(v.z)
+        return Vector(x, y, z)
+
+    tgt_f: list[Vector] = [to_vector_f(v) for v in target_coords]
+
+    # ─── 3) Decimate and build per-frame Vector lists ───────────────
     recording_coords: list[list[Vector]] = []
-    for i, frame_tensor in enumerate(recording):
-        if i % speed != 0:
+    for idx, arr in enumerate(rec_np):
+        if idx % speed != 0:
             continue
-        recording_coords.append(
-            [Vector(c[0].item(), c[1].item(), c[2].item()) for c in frame_tensor]
-        )
+        # arr is now a pure NumPy array of shape (N,3)
+        recording_coords.append([Vector(x, y, z) for x, y, z in arr])
+
     num_frames = len(recording_coords)
-    # apply chirality correction
+
+    # ─── 4) Chirality correction on the last frame ────────────────
     _, flip = correct_chirality(recording_coords[-1])
     if flip:
-        recording_coords = [mirror(coords) for coords in recording_coords]
+        recording_coords = [mirror(frame) for frame in recording_coords]
 
-    # --- compute bounding box with padding as before ---
-    x_vals = [v.x for v in target_coords]
-    y_vals = [v.y for v in target_coords]
-    z_vals = [v.z for v in target_coords]
-    x_min, x_max = min(x_vals), max(x_vals)
-    y_min, y_max = min(y_vals), max(y_vals)
-    z_min, z_max = min(z_vals), max(z_vals)
-    x_range = x_max - x_min or 1.0
-    y_range = y_max - y_min or 1.0
-    z_range = z_max - z_min or 1.0
-    x_pad = VIDEO_PADDING * x_range
-    y_pad = VIDEO_PADDING * y_range
-    z_pad = VIDEO_PADDING * z_range
+    # ─── 5) Compute bounds from tgt_f as plain floats ───────────────
+    xs = [v.x for v in tgt_f]
+    ys = [v.y for v in tgt_f]
+    zs = [v.z for v in tgt_f]
+
+    x_min, x_max = min(xs), max(xs)
+    y_min, y_max = min(ys), max(ys)
+    z_min, z_max = min(zs), max(zs)
+
+    x_pad = VIDEO_PADDING * (x_max - x_min or 1.0)
+    y_pad = VIDEO_PADDING * (y_max - y_min or 1.0)
+    z_pad = VIDEO_PADDING * (z_max - z_min or 1.0)
+
+    # All limits are now pure floats
     x_lim = (x_min - x_pad, x_max + x_pad)
     y_lim = (y_min - y_pad, y_max + y_pad)
     z_lim = (z_min - z_pad, z_max + z_pad)
 
-    # --- define your base→color mapping and precompute indices ---
-    base_colors = {
-        "A": A_COLOR,
-        "C": C_COLOR,
-        "G": G_COLOR,
-        "U": U_COLOR,
-    }
-    # seq_indices = {
-    #     base: [i for i, b in enumerate(seq_str) if b == base] for base in base_colors
-    # }
-
-    # set up figure & axis
+    # ─── 6) Color map & figure setup ───────────────────────────────
+    base_colors = {"A": A_COLOR, "C": C_COLOR, "G": G_COLOR, "U": U_COLOR}
     fig = plt.figure()
     ax = fig.add_subplot(111, projection="3d")
 
     def init():
         ax.clear()
-        ax.set_xlim(x_lim)
-        ax.set_ylim(y_lim)
-        ax.set_zlim(z_lim)
-        # original in transparent gray
-        xo = [v.x for v in target_coords]
-        yo = [v.y for v in target_coords]
-        zo = [v.z for v in target_coords]
-        ax.scatter(xo, yo, zo, color="black", s=100, alpha=0.05)
-        ax.plot(xo, yo, zo, color="black", alpha=0.05, linewidth=2)
-        ax.set_xlabel("X")
-        ax.set_ylabel("Y")
-        ax.set_zlabel("Z")
+        ax.set_xlim(*x_lim)
+        ax.set_ylim(*y_lim)
+        ax.set_zlim(*z_lim)
+        # faint target
+        ax.scatter(xs, ys, zs, color="black", s=100, alpha=0.05)
+        ax.plot(xs, ys, zs, color="black", alpha=0.05, linewidth=2)
+        ax.set_xlabel("X"); ax.set_ylabel("Y"); ax.set_zlabel("Z")
         ax.set_title("Adjustment Process")
         return []
 
-    def update(frame):
-        if frame % 10 == 0:
-            print(f"Processing frame {frame}/{num_frames}")
-        current = align(recording_coords[frame], target_coords)
+    def update(frame_idx: int):
+        if frame_idx % 10 == 0:
+            print(f"Processing frame {frame_idx+1}/{num_frames}")
 
-        # Build per-base groups by zipping seq_str & coords
-        base_groups = {base: [] for base in base_colors}
+        current = align(recording_coords[frame_idx], tgt_f)
+
+        # group by base
+        groups = {b: [] for b in base_colors}
         for base, vec in zip(seq_str, current):
-            if base in base_groups:
-                base_groups[base].append(vec)
+            groups[base].append(vec)
 
-        # Clear & reset axes
         ax.clear()
-        ax.set_xlim(x_lim)
-        ax.set_ylim(y_lim)
-        ax.set_zlim(z_lim)
+        ax.set_xlim(*x_lim)
+        ax.set_ylim(*y_lim)
+        ax.set_zlim(*z_lim)
 
-        # Re‐plot original
-        xo = [v.x for v in target_coords]
-        yo = [v.y for v in target_coords]
-        zo = [v.z for v in target_coords]
-        ax.scatter(xo, yo, zo, color="black", s=100, alpha=0.05)
-        ax.plot(xo, yo, zo, color="black", alpha=0.05, linewidth=2)
+        # re‐plot faint target
+        ax.scatter(xs, ys, zs, color="black", s=100, alpha=0.05)
+        ax.plot(xs, ys, zs, color="black", alpha=0.05, linewidth=2)
 
-        # Scatter each base in its color
+        # plot current by base
         for base, color in base_colors.items():
-            grp = base_groups[base]
-            if not grp:
-                continue
-            xs = [v.x for v in grp]
-            ys = [v.y for v in grp]
-            zs = [v.z for v in grp]
-            ax.scatter(xs, ys, zs, color=color, s=100, label=base)
+            pts = groups[base]
+            if not pts: continue
+            ax.scatter(
+                [v.x for v in pts],
+                [v.y for v in pts],
+                [v.z for v in pts],
+                color=color,
+                s=100,
+                label=base,
+            )
 
-        # Optional: draw the overall adjusted path in red
-        x_adj = [v.x for v in current]
-        y_adj = [v.y for v in current]
-        z_adj = [v.z for v in current]
+        # plot the adjusted path
         ax.plot(
-            x_adj,
-            y_adj,
-            z_adj,
+            [v.x for v in current],
+            [v.y for v in current],
+            [v.z for v in current],
             color="black",
             alpha=0.7,
             linewidth=2,
             label="Adjusted Path",
         )
 
-        ax.set_xlabel("X")
-        ax.set_ylabel("Y")
-        ax.set_zlabel("Z")
-        ax.set_title(f"Adjustment Frame {frame+1}")
-        ax.legend(loc="upper left", bbox_to_anchor=(1.05, 1.0), borderaxespad=0.0)
+        ax.set_title(f"Frame {frame_idx+1}")
+        ax.legend(loc="upper left", bbox_to_anchor=(1.05, 1.0))
         return []
 
-    # build & save animation
+    # ─── 7) Build & save animation ────────────────────────────────
     ani = animation.FuncAnimation(
-        fig, update, frames=num_frames, init_func=init, interval=interval, repeat=False
+        fig, update, frames=num_frames, init_func=init,
+        interval=interval, repeat=False
     )
-    Writer = animation.writers["ffmpeg"]
-    writer = Writer(fps=1000 // interval, metadata=dict(artist="You"), bitrate=1800)
+    writer = animation.writers["ffmpeg"](fps=1000 // interval, metadata={"artist":"You"}, bitrate=1800)
     ani.save(save_path, writer=writer)
     plt.close(fig)
 
-    print(f"Video saved to {save_path} in {time.time() - start_time:.2f}s")
-
-
+    print(f"Video saved to {save_path} in {(time.time() - start_time):.2f}s")
 # ============= Compute Similarity =============
 def compute_similarity(
     path_1: str, path_2: str, timeout: float = 3.0

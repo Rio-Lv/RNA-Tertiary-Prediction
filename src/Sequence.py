@@ -18,7 +18,12 @@ from torch.utils.data import DataLoader, TensorDataset, random_split
 
 from torch.optim import Adam
 from tools import *
-from SpineModel import SpineModel
+from SpineModelBig import SpineModelBig
+
+if torch.backends.mps.is_available() and torch.backends.mps.is_built():
+    device = torch.device("mps")
+else:
+    device = torch.device("cpu")
 
 # set here to cwd
 os.chdir(os.path.dirname(os.path.abspath(__file__)))
@@ -419,10 +424,10 @@ def analyse_scores(N: int):
 
         target_matrix = seq.distance_matrix.clone()
         # print("Target Matrix: ", target_matrix)
-        spine_model = SpineModel()
+        spine_model = SpineModelBig()
         spine_coords, _ = spine_model.construct_spine_coords(
             seq_str=seq.seq_str,
-            target_matrix=target_matrix,
+            # target_matrix=target_matrix,
         )
         adjusted_coords,_ = correct_chirality(spine_coords)
         target_pdb_path = "seq_output/sequence_source.pdb"
@@ -492,9 +497,10 @@ def analyse_scores(N: int):
 def analyse_one():
     seq_dataset = SequenceDataset(n_sequences=N_SEQUENCES, subset_len=SUBSET_LEN)
     seq = seq_dataset.get_random_subset()
-    target_matrix = seq.distance_matrix.clone()
+    # target_matrix = seq.distance_matrix.clone().to(device)
 
-    spine_model: SpineModel = SpineModel()
+    spine_model = SpineModelBig()
+    spine_model.to(device)
     spine_coords, spine_recording = spine_model.construct_spine_coords(
         seq_str=seq.seq_str
     )

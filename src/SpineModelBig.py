@@ -24,8 +24,8 @@ print(f"Using device: {device}")
 
 EPS = 1e-8  # avoids 0‑division
 MAX_DELTA = 0.1  # clip per‑step movement (Å)
-SPINE_ITERATIONS_PER_RESIDUE = 50
-ITERATIONS_TO_SETTLE = 2000
+SPINE_ITERATIONS_PER_RESIDUE = 20
+ITERATIONS_TO_SETTLE = 1000
 TEMPERATURE = 0.1
 ACITVE_KEEP_RATE_SPINE = 1
 ACITVE_KEEP_RATE_SETTLE = 0.1
@@ -275,16 +275,16 @@ class SpineModelBig(nn.Module):
         active_keep_rate_spine: float = ACITVE_KEEP_RATE_SPINE,
         active_keep_rate_settle: float = ACITVE_KEEP_RATE_SETTLE,
         target_matrix: Tensor = None,
-    ) -> Tuple[List[Vector], List[Vector]]:
+    ) -> Tuple[List[Vector], List[Tensor]]:
         """
         1. Put down first
         """
 
         coords: list[Vector] = []
         full_recording: list[Tensor] = []
-        spine_distance_matrix = self.construct_distance_matrix(seq_str)
-        plot_distance_heatmap(spine_distance_matrix)
-        distance_matrix = torch.zeros(len(seq_str), len(seq_str))
+        spine_distance_matrix = self.construct_distance_matrix(seq_str).to(device)
+        # plot_distance_heatmap(spine_distance_matrix)
+        distance_matrix = torch.zeros(len(seq_str), len(seq_str)).to(device)
         # Use Real Matrix but Replace Spine
         # Use Real Matrix but Replace Spine
         if target_matrix is not None:
@@ -298,10 +298,11 @@ class SpineModelBig(nn.Module):
                 if abs(i - j) < SPINE_WINDOW_SIZE:
                     distance_matrix[i, j] = spine_distance_matrix[i, j]
         small_spine = SpineModel()
+        small_spine.to(device)
         small_spine_seq = small_spine.subset_len
         small_spine_distance_matrix = small_spine.construct_distance_matrix(
             seq_str=seq_str
-        )
+        ).to(device)
         for i in range(len(seq_str)):
             for j in range(len(seq_str)):
                 if abs(i - j) < small_spine_seq:
@@ -428,7 +429,7 @@ if __name__ == "__main__":
         recording=recording,
         seq_str=seq_str,
         save_path="videos/SpineModelBig.mp4",
-        speed=20,
+        speed=5,
     )
 
     plot_coords_list(

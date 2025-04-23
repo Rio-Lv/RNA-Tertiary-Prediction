@@ -12,11 +12,18 @@ from torch.utils.data import DataLoader, TensorDataset, random_split
 from typing import List
 from tools import *
 
+if torch.backends.mps.is_available() and torch.backends.mps.is_built():
+    device = torch.device("mps")
+else:
+    device = torch.device("cpu")
+
+print(f"Using device: {device}")
+
 
 EPS = 1e-8  # avoids 0‑division
 MAX_DELTA = 0.1  # clip per‑step movement (Å)
 SPINE_ITERATIONS_PER_RESIDUE = 20
-ITERATIONS_TO_SETTLE = 2000
+ITERATIONS_TO_SETTLE = 1000
 TEMPERATURE = 0.1
 ACITVE_KEEP_RATE_SPINE = 1
 ACITVE_KEEP_RATE_SETTLE = 0.1
@@ -60,10 +67,9 @@ def save_artifact(obj: Any, path: pathlib.Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     torch.save(obj, path)
 
-
 def load_artifact(path: pathlib.Path):
-    return torch.load(path, map_location="cpu") if path.is_file() else None
-
+    # make sure any loaded checkpoint lands on our device
+    return torch.load(path, map_location=device) if path.is_file() else None
 
 # ------------------------------------------------------------------- #
 #  PyTorch ≥ 2.3 safe‑load note
@@ -170,6 +176,7 @@ class SpineModel(nn.Module):
             self.train()
             tr_loss, tr_n = 0.0, 0
             for x, y in train_loader:
+                x, y = x.to(device), y.to(device)
                 self.optimizer.zero_grad()
                 loss = self.loss_fn(self(x), y)
                 loss.backward()
@@ -183,6 +190,7 @@ class SpineModel(nn.Module):
             v_loss, v_n = 0.0, 0
             with torch.no_grad():
                 for x, y in val_loader:
+                    x, y = x.to(device), y.to(device)
                     v_loss += self.loss_fn(self(x), y).item() * x.size(0)
                     v_n += x.size(0)
             self.val_history.append(v_loss / v_n)
@@ -213,8 +221,8 @@ class SpineModel(nn.Module):
 
     @torch.no_grad()
     def construct_distance_matrix(self, seq_str: str) -> torch.Tensor:
-        count = torch.ones(len(seq_str), len(seq_str))
-        distance_matrix = torch.zeros(len(seq_str), len(seq_str))
+        count = torch.ones(len(seq_str), len(seq_str), device=device)
+        distance_matrix = torch.zeros(len(seq_str), len(seq_str), device=device)
 
         last_index = len(seq_str) - self.subset_len + 1
         for i in range(last_index):
@@ -222,8 +230,8 @@ class SpineModel(nn.Module):
             max_index = i + self.subset_len
             # slice the sequence and encode it
             seq_slice = seq_str[i : i + self.subset_len]
-            seq_onehot: Tensor = encode_str(seq_slice)
-            dist_mat: Tensor = self.forward(seq_onehot.unsqueeze(0)).squeeze(0)
+            seq_onehot = encode_str(seq_slice).float().unsqueeze(0).to(device)
+            dist_mat = self(seq_onehot).squeeze(0)
             dist_mat = dist_mat.view(self.subset_len, self.subset_len)
 
             distance_matrix[min_index:max_index, min_index:max_index] += dist_mat
@@ -257,8 +265,8 @@ class SpineModel(nn.Module):
         """
         coords: list[Vector] = []
         full_recording: list[Tensor] = []
-        spine_distance_matrix = self.construct_distance_matrix(seq_str)
-        distance_matrix = torch.zeros(len(seq_str), len(seq_str))
+        spine_distance_matrix = self.construct_distance_matrix(seq_str).to(device)
+        distance_matrix = torch.zeros(len(seq_str), len(seq_str)).to(device)
         # Use Real Matrix but Replace Spine
         if target_matrix is not None:
             for i in range(len(seq_str)):
@@ -336,7 +344,10 @@ if __name__ == "__main__":
         torch.set_printoptions(precision=4, sci_mode=False)
 
         model = SpineModel()
+        model.to(device)
         tr_loader, vl_loader = model.get_dataloaders()
+        
+        
 
         # ── grab one validation sample ──────────────────────────────────
         sample_x, target = vl_loader.dataset[0]  # (4, L) , (L, L)
@@ -377,6 +388,7 @@ if __name__ == "__main__":
 
     # 2. ===== USING THE MODEL =====
     spine_model = SpineModel()
+    spine_model.to(device)
 
     seq_str = "CCCCCCCCCGGGGGGGAAAAAAAAACCCCAAAAGGUUGGUGUUGGUGUGGAGAGAGAGAGUAGAGUAGAG"
     # create a distance matrix for a random sequence
