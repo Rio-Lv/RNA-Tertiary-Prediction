@@ -266,8 +266,11 @@ class SpineModel(nn.Module):
                     if abs(i - j) < MAX_INDEX_DIFF:
                         distance_matrix[i, j] = target_matrix[i, j]
                         
-                    if abs(i - j) < SPINE_WINDOW_SIZE:
-                        distance_matrix[i, j] = spine_distance_matrix[i, j]
+        for i in range(len(seq_str)):
+            for j in range(len(seq_str)):
+
+                if abs(i - j) < SPINE_WINDOW_SIZE:
+                    distance_matrix[i, j] = spine_distance_matrix[i, j]
                         
 
         noise = 0.1

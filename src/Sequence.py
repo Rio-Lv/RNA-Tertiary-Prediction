@@ -242,6 +242,8 @@ class SequenceDataset:
         self.n_sequences = n_sequences
         self.labels = pd.read_csv(LABELS_PATH)
         self.sequences = pd.read_csv(SEQUENCES_PATH)
+        
+        # shuffle the sequences
 
         self.subset_len = subset_len
         self.subset_sequences = self.generate_subset_sequences()
@@ -254,13 +256,13 @@ class SequenceDataset:
         sequences = []
         n_sequences = self.n_sequences
 
-        for i in range(len(sequences_df)):
+        for iter in range(len(sequences_df)):
 
             if len(sequences) >= n_sequences:
                 print("Target number of sequences reached.")
                 break
-            seq_id = sequences_df.iloc[i]["target_id"]
-            seq_str = sequences_df.iloc[i]["sequence"]
+            seq_id = sequences_df.iloc[iter]["target_id"]
+            seq_str = sequences_df.iloc[iter]["sequence"]
 
             if len(seq_str) < subset_len:
                 continue
@@ -494,7 +496,7 @@ def analyse_one():
 
     spine_model: SpineModel = SpineModel()
     spine_coords, spine_recording = spine_model.construct_spine_coords(
-        seq_str=seq.seq_str, target_matrix=target_matrix
+        seq_str=seq.seq_str
     )
 
     adjusted_coords,_ = correct_chirality(spine_coords)

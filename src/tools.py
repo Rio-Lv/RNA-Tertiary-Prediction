@@ -213,40 +213,6 @@ def atomic_bounce(
     # Apply the shifts
     return coord_matrix + atom_shifts
 
-def compute_pair_strength_matrix(seq_str:str) -> Tensor:
-    """ 
-    Compute the pair strength matrix from a sequence string.
-    where A-U and G-C are 1
-    and G-U is 0.5
-    and the rest are 0
-    """
-    pair_strength_matrix = torch.zeros((len(seq_str), len(seq_str)))
-    for i in range(len(seq_str)):
-        for j in range(len(seq_str)):
-            if i == j:
-                continue
-            if (seq_str[i], seq_str[j]) in [("A", "U"), ("U", "A"), ("G", "C"), ("C", "G")]:
-                pair_strength_matrix[i][j] = 1
-            elif (seq_str[i], seq_str[j]) in [("G", "U"), ("U", "G")]:
-                pair_strength_matrix[i][j] = 0.5
-    return pair_strength_matrix
-
-def compute_stability_matrix(distance_matrix: Tensor, pair_strength_matrix:Tensor) -> Tensor:
-    # for all i,j in distance_matrix
-    # closer the distance is to stable_radius the close the value to 1
-    stable_radius = 5
-    dist = distance_matrix - stable_radius + EPS
-    dist = torch.abs(dist)
-    dist = 1/dist
-    # sigmoid the distance
-    dist = torch.sigmoid(dist)
-    # multiply by the pair strength matrix
-    stability = dist * pair_strength_matrix
-    return stability
-    
-    
-
-
 def apply_heat(distance_matrix: Tensor, temperature: float) -> Tensor:
     """
     Apply Gaussian noise to the distance matrix.
@@ -320,12 +286,7 @@ def adjust_coords(
     Only contributions from pairs with distances <= MAX_DISTANCE are considered.
     """
     coord_matrix = coords_list_to_matrix(input_coords)  # Changes every iteration
-    active_distance_matrix = coord_to_distance_matrix(coord_matrix)
-    pair_strength_matrix = compute_pair_strength_matrix(seq_str)
 
-    stability_matrix = compute_stability_matrix(
-        active_distance_matrix, pair_strength_matrix
-    )
     recording = []
     length, _ = coord_matrix.shape
 
@@ -343,16 +304,10 @@ def adjust_coords(
         # 2. Apply Heat to the Structure.
         active_distance_matrix = apply_heat(active_distance_matrix, temperature)
         
-        # 2.1 Create matrix of 5 to assume all distances are 5 then multiply by stability matrix
-        distant_pull_matrix = torch.full(
-            (active_distance_matrix.shape[0], active_distance_matrix.shape[1]), 1.0
-        )
-        distant_pull_matrix *= 1 - stability_matrix
         # 2.2. Drop some deltas to simulate imperfect information
         active_distance_matrix = drop_random(
             active_distance_matrix, keep_rate=active_keep_rate
         )
-
 
         # 3. Compute Deltas Based on Target Distance Matrix
         deltas = compute_delta_matrix(
