@@ -23,12 +23,12 @@ print(f"Using device: {device}")
 
 
 EPS = 1e-8  # avoids 0‑division
-MAX_DELTA = 0.1  # clip per‑step movement (Å)
-SPINE_ITERATIONS_PER_RESIDUE = 25
-ITERATIONS_TO_SETTLE = 1000
+MAX_DELTA = 0.5  # clip per‑step movement (Å)
+SPINE_ITERATIONS_PER_RESIDUE = 20
+ITERATIONS_TO_SETTLE = 1500
 TEMPERATURE = 0.1
-ACITVE_KEEP_RATE_SPINE = 1
-ACITVE_KEEP_RATE_SETTLE = 0.1
+ACTIVE_KEEP_RATE_SPINE= 1
+ACTIVE_KEEP_RATE_SETTLE = 0.1
 
 MAX_INDEX_DIFF = 50
 
@@ -272,8 +272,6 @@ class SpineModelBig(nn.Module):
         iterations_per_residue: int = SPINE_ITERATIONS_PER_RESIDUE,
         iterations_to_settle: int = ITERATIONS_TO_SETTLE,
         max_delta: float = MAX_DELTA,
-        active_keep_rate_spine: float = ACITVE_KEEP_RATE_SPINE,
-        active_keep_rate_settle: float = ACITVE_KEEP_RATE_SETTLE,
         target_matrix: Tensor = None,
     ) -> Tuple[List[Vector], List[Tensor]]:
         """
@@ -294,7 +292,7 @@ class SpineModelBig(nn.Module):
                         
         for i in range(len(seq_str)):
             for j in range(len(seq_str)):
-                if abs(i - j) < SPINE_WINDOW_SIZE:
+                if abs(i - j) < 16:
                     distance_matrix[i, j] = spine_distance_matrix[i, j]
         small_spine = SpineModel()
         small_spine.to(device)
@@ -326,9 +324,9 @@ class SpineModelBig(nn.Module):
                 dx = coord_2.x - coord_1.x
                 dy = coord_2.y - coord_1.y
                 dz = coord_2.z - coord_1.z
-                coord_1.x += dx + random.uniform(-noise, noise)
-                coord_1.y += dy + random.uniform(-noise, noise)
-                coord_1.z += dz + random.uniform(-noise, noise)
+                coord_1.x -= dx + random.uniform(-noise, noise)
+                coord_1.y -= dy + random.uniform(-noise, noise)
+                coord_1.z -= dz + random.uniform(-noise, noise)
                 coords.append(coord_1)
                 coords, recording = adjust_coords(
                     n_iter=iterations_per_residue,
@@ -336,11 +334,14 @@ class SpineModelBig(nn.Module):
                     input_coords=coords,
                     target_matrix=distance_matrix,
                     temperature=temperature,
-                    active_keep_rate=active_keep_rate_spine,
+                    active_keep_rate=ACTIVE_KEEP_RATE_SPINE,
                     max_delta=max_delta,
                     # adjust_last=False,
                 )
                 full_recording.extend(recording)
+                
+        if target_matrix is not None:
+            distance_matrix = target_matrix
 
         settled_coords, settled_recording = adjust_coords(
             n_iter=iterations_to_settle,
@@ -348,8 +349,8 @@ class SpineModelBig(nn.Module):
             input_coords=coords,
             target_matrix=distance_matrix,
             temperature=temperature,
-            active_keep_rate=active_keep_rate_settle,
-            max_delta=max_delta,
+            active_keep_rate=ACTIVE_KEEP_RATE_SETTLE,
+            max_delta=max_delta/10,
             # adjust_last=False,
         )
         full_recording.extend(settled_recording)
@@ -416,7 +417,7 @@ if __name__ == "__main__":
     spine_model = SpineModelBig()
     spine_model.to(device)
 
-    seq_str = "CCCCCCCCCGGGGGGGAAAAAAAAACCCCAAAAGGUUGGUGUUGGUGUGGAGAGAGAGAGUAGAGUAGAG"
+    seq_str = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
     # create a distance matrix for a random sequence
     # distance_matrix = spine_model.construct_distance_matrix("ACGUAAAA")
     spine_coords, recording = spine_model.construct_spine_coords(

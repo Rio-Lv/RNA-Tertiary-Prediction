@@ -21,7 +21,7 @@ print(f"Using device: {device}")
 
 
 EPS = 1e-8  # avoids 0‑division
-MAX_DELTA = 0.1  # clip per‑step movement (Å)
+MAX_DELTA = 0.5  # clip per‑step movement (Å)
 SPINE_ITERATIONS_PER_RESIDUE = 20
 ITERATIONS_TO_SETTLE = 1000
 TEMPERATURE = 0.1
@@ -32,10 +32,10 @@ MAX_INDEX_DIFF = 0
 
 
 # ------------------------- hyper‑parameters ------------------------- #
-TRAIN = True
+TRAIN = False
 
 # flip either flag to *True* before running to wipe the corresponding cache
-RESET_DATA = True
+RESET_DATA = False
 RESET_MODEL = False
 
 SPINE_TRAIN_EPOCHS = 3_000

@@ -275,6 +275,25 @@ def sub_next_coord(active_coord_matrix: Tensor) -> Tensor:
 
     return active_coord_matrix
 
+def combine_distance_matrices(distance_matrices: list[Tensor],keep_rates:list[float]) -> Tensor:
+    """ 
+    takes priority of the last distance matrix
+    1. add first matrix + apply relevant keep rate (drop_random)
+    2. replace values with second matrix for values > 0.1 + apply relevant keep rate
+    3. replace values with third matrix for values > 0.1 and so on + apply relevant keep rate
+    so on
+    """
+    combined_matrix = distance_matrices[0].clone()
+    for i in range(1, len(distance_matrices)):
+        # Apply drop_random to the first matrix
+        combined_matrix = drop_random(combined_matrix, keep_rates[i-1])
+        # Replace values with the next matrix
+        mask = distance_matrices[i] > 0.1
+        combined_matrix[mask] = distance_matrices[i][mask]
+        # Apply drop_random to the next matrix
+        combined_matrix = drop_random(combined_matrix, keep_rates[i])
+    return combined_matrix
+
 
 def adjust_coords(
     n_iter: int,

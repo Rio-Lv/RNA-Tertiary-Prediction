@@ -18,7 +18,8 @@ from torch.utils.data import DataLoader, TensorDataset, random_split
 
 from torch.optim import Adam
 from tools import *
-from SpineModelBig import SpineModelBig
+# from SpineModel import SpineModel 
+from SpineModelBig import SpineModelBig as SpineModel
 
 if torch.backends.mps.is_available() and torch.backends.mps.is_built():
     device = torch.device("mps")
@@ -29,8 +30,7 @@ else:
 os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
 # ====== CONSTANTS ======
-SUBSET_LEN = 100
-
+SUBSET_LEN = 150
 N_SEQUENCES = 10
 # N_NEAREST_NEIGBORS = 30  # If using n nearest neighbors for adjustment
 # MAX_DISTANCE = 32  # If using neightbor within distance for adjustment
@@ -434,10 +434,11 @@ def analyse_scores(N: int):
 
         target_matrix = seq.distance_matrix.clone()
         # print("Target Matrix: ", target_matrix)
-        spine_model = SpineModelBig()
+        spine_model = SpineModel()
+        spine_model.to(device)
         spine_coords, _ = spine_model.construct_spine_coords(
             seq_str=seq.seq_str,
-            # target_matrix=target_matrix,
+            target_matrix=target_matrix,
         )
         adjusted_coords,_ = correct_chirality(spine_coords)
         target_pdb_path = "seq_output/sequence_source.pdb"
@@ -509,7 +510,7 @@ def analyse_one():
     seq = seq_dataset.get_random_subset()
     target_matrix = seq.distance_matrix.clone().to(device)
 
-    spine_model = SpineModelBig()
+    spine_model = SpineModel()
     spine_model.to(device)
     spine_coords, spine_recording = spine_model.construct_spine_coords(
         seq_str=seq.seq_str,
@@ -561,7 +562,7 @@ if __name__ == "__main__":
     # =============== Test 2 ==============
 
     # print("Testing multiple sequence lengths scores")
-    # analyse_scores(100)
+    # analyse_scores(10)
 
     # =============== Test 3 ==============
     # print("Loading Sequence Dataset")
