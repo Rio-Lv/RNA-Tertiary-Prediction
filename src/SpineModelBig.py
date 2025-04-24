@@ -25,12 +25,12 @@ print(f"Using device: {device}")
 EPS = 1e-8  # avoids 0‑division
 MAX_DELTA = 0.5  # clip per‑step movement (Å)
 SPINE_ITERATIONS_PER_RESIDUE = 20
-ITERATIONS_TO_SETTLE = 1500
+ITERATIONS_TO_SETTLE = 2000
 TEMPERATURE = 0.1
 ACTIVE_KEEP_RATE_SPINE= 1
-ACTIVE_KEEP_RATE_SETTLE = 0.1
+ACTIVE_KEEP_RATE_SETTLE = 1
 
-MAX_INDEX_DIFF = 50
+MAX_INDEX_DIFF = 1000
 
 
 # ------------------------- hyper‑parameters ------------------------- #
@@ -282,18 +282,11 @@ class SpineModelBig(nn.Module):
         full_recording: list[Tensor] = []
         spine_distance_matrix = self.construct_distance_matrix(seq_str).to(device)
         # plot_distance_heatmap(spine_distance_matrix)
-        distance_matrix = torch.zeros(len(seq_str), len(seq_str)).to(device)
-        # Use Real Matrix but Replace Spine
-        if target_matrix is not None:
-            for i in range(len(seq_str)):
-                for j in range(len(seq_str)):
-                    if abs(i - j) < MAX_INDEX_DIFF:
-                        distance_matrix[i, j] = target_matrix[i, j]
+        
+        # distance_matrix = torch.zeros(len(seq_str), len(seq_str)).to(device)
+        distance_matrix = spine_distance_matrix.clone().to(device)
+
                         
-        for i in range(len(seq_str)):
-            for j in range(len(seq_str)):
-                if abs(i - j) < 16:
-                    distance_matrix[i, j] = spine_distance_matrix[i, j]
         small_spine = SpineModel()
         small_spine.to(device)
         small_spine_seq = small_spine.subset_len
@@ -304,6 +297,8 @@ class SpineModelBig(nn.Module):
             for j in range(len(seq_str)):
                 if abs(i - j) < small_spine_seq:
                     distance_matrix[i, j] = small_spine_distance_matrix[i, j]
+                    
+                    
                         
 
         noise = 0.1
@@ -340,8 +335,40 @@ class SpineModelBig(nn.Module):
                 )
                 full_recording.extend(recording)
                 
+        # Only use distances under 10 Å from target matrix
         if target_matrix is not None:
-            distance_matrix = target_matrix
+            distance_matrix = torch.zeros(len(seq_str), len(seq_str)).to(device)
+            # 1.  big spine first
+            for i in range(len(seq_str)):
+                for j in range(len(seq_str)):
+                    # if abs(i - j) < MAX_INDEX_DIFF 
+                    if spine_distance_matrix[i, j] > 8:
+                        # if target_matrix[i, j] < 10:
+                        distance_matrix[i, j] = spine_distance_matrix[i, j]
+                        
+            small_spine_distance_matrix = small_spine.construct_distance_matrix(
+                seq_str=seq_str
+            ).to(device)
+            
+            # 2. target matrix in between
+            target_matrix[target_matrix > 12] = 0
+                
+            for i in range(len(seq_str)):
+                for j in range(len(seq_str)):
+                    # if abs(i - j) < MAX_INDEX_DIFF 
+                    if target_matrix[i, j] > 0:
+                        distance_matrix[i, j] = target_matrix[i, j]
+                        
+            # 3. Small Spine Last
+            for i in range(len(seq_str)):
+                for j in range(len(seq_str)):
+                    if abs(i - j) < small_spine_seq:
+                        distance_matrix[i, j] = small_spine_distance_matrix[i, j]
+                        
+        plot_distance_heatmap(
+            distance_matrix, title=f"Distance matrix for {seq_str}"
+        )
+                   
 
         settled_coords, settled_recording = adjust_coords(
             n_iter=iterations_to_settle,
@@ -350,7 +377,7 @@ class SpineModelBig(nn.Module):
             target_matrix=distance_matrix,
             temperature=temperature,
             active_keep_rate=ACTIVE_KEEP_RATE_SETTLE,
-            max_delta=max_delta/10,
+            max_delta=max_delta,
             # adjust_last=False,
         )
         full_recording.extend(settled_recording)
@@ -417,7 +444,7 @@ if __name__ == "__main__":
     spine_model = SpineModelBig()
     spine_model.to(device)
 
-    seq_str = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+    seq_str = "ACGUUUAAACCAUAUAGCGCAUCGACUGACGUAGCUGUAGCUAGCUAGC"
     # create a distance matrix for a random sequence
     # distance_matrix = spine_model.construct_distance_matrix("ACGUAAAA")
     spine_coords, recording = spine_model.construct_spine_coords(

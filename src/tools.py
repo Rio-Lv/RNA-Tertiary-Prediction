@@ -12,6 +12,7 @@ import matplotlib.pyplot as plt
 from typing import Tuple, List
 import time
 import matplotlib.animation as animation
+import math
 
 
 if torch.backends.mps.is_available() and torch.backends.mps.is_built():
@@ -475,12 +476,14 @@ def plot_coords_list(
     seq_str: str,
     coords: list[Vector],
     reference_coords: list[Vector] = None,
+    pair_threshold: float = 8.5,  # Å cutoff
 ):
     """
     Plot a 3D sequence:
       • reference_coords in faint gray (alpha=0.5) if provided
       • coords path in black
       • points colored by seq_str bases (A/C/G/U)
+      • lines between any G-C or A-U within pair_threshold (blue/red)
     """
     # If you have a reference, align your coords to it
     if reference_coords is not None:
@@ -492,20 +495,16 @@ def plot_coords_list(
     if reference_coords is not None and len(reference_coords) != N:
         raise ValueError("`reference_coords` must match length of `seq_str`")
 
-    # Helper to extract Python floats from Vector components
     def to_float(x):
-        # if it's a tensor, bring to CPU then .item()
         if hasattr(x, "cpu"):
             return x.detach().cpu().item()
         return float(x)
 
-    # Convert all coords to lists of floats up front
     coords_f = [Vector(to_float(v.x), to_float(v.y), to_float(v.z)) for v in coords]
     ref_f = None
     if reference_coords is not None:
         ref_f = [Vector(to_float(v.x), to_float(v.y), to_float(v.z)) for v in reference_coords]
 
-    # Base→color mapping
     base_color_map = {"A": A_COLOR, "C": C_COLOR, "G": G_COLOR, "U": U_COLOR}
 
     fig = plt.figure()
@@ -542,13 +541,152 @@ def plot_coords_list(
                    s=100,
                    label=f"{base}")
 
+    # 4) draw only the closest G–C/A–U partner per residue
+    # 4a) collect all candidate pairs
+    candidates = []
+    for i in range(N):
+        for j in range(i+1, N):
+            if (i == j or abs(i - j) < 2):
+                continue
+            b1, b2 = seq_str[i], seq_str[j]
+            pair = {b1, b2}
+            if pair in ({"G","C"}, {"A","U"}):
+                v1, v2 = coords_f[i], coords_f[j]
+                dist = math.dist((v1.x, v1.y, v1.z),
+                                 (v2.x, v2.y, v2.z))
+                if dist <= pair_threshold:
+                    candidates.append((dist, i, j, pair))
+
+    # 4b) sort by closest first
+    candidates.sort(key=lambda x: x[0])
+
+    used = set()
+    for dist, i, j, pair in candidates:
+        if i in used or j in used:
+            continue
+        # mark residues as paired
+        used.add(i)
+        used.add(j)
+
+        v1, v2 = coords_f[i], coords_f[j]
+        # blue for G–C, red for A–U
+        color = "blue" if pair == {"G","C"} else "red"
+        ax.plot(
+            [v1.x, v2.x],
+            [v1.y, v2.y],
+            [v1.z, v2.z],
+            color=color,
+            linewidth=2,
+            linestyle="--",
+            label=f"{seq_str[i]}–{seq_str[j]} ({dist:.1f} Å)"
+        )
+
     # Labels & legend
     ax.set_xlabel("X")
     ax.set_ylabel("Y")
     ax.set_zlabel("Z")
-    ax.set_title("3D Vector Plot")
+    ax.set_title("3D Vector Plot with Base-pair Links")
     plt.subplots_adjust(right=0.75)
     ax.legend(loc="upper left", bbox_to_anchor=(1.05, 1.0), borderaxespad=0.0)
+    plt.show()
+    
+def plot_coords_mids(
+    seq_str: str,
+    coords: List[Vector],
+    reference_coords: List[Vector] = None,
+    pair_threshold: float = 8.5,  # Å cutoff
+):
+
+    """
+    1) Plot all residues as gray points (alpha=0.1).
+    2) For each residue, pick its closest G–C / A–U partner within pair_threshold.
+    3) Compute each pair’s midpoint.
+    4) Sort pairs by their smaller index.
+    5) Draw a thick line between midpoints of adjacent pairs (i_k+1 == i_{k+1}), 
+       colored blue for G–C, red for A–U.
+    """
+    # 1) Align if needed
+    if reference_coords is not None:
+        coords = align(coords, reference_coords)
+
+    N = len(seq_str)
+    if len(coords) != N or (reference_coords is not None and len(reference_coords) != N):
+        raise ValueError("`coords` (and reference_coords) must match seq length")
+
+    def to_float(x):
+        if hasattr(x, "cpu"):
+            return x.detach().cpu().item()
+        return float(x)
+
+    # Convert to floats
+    coords_f = [Vector(to_float(v.x), to_float(v.y), to_float(v.z)) for v in coords]
+
+    # 2) Scatter all residues in gray
+    fig = plt.figure()
+    ax = fig.add_subplot(111, projection="3d")
+    xs = [v.x for v in coords_f]
+    ys = [v.y for v in coords_f]
+    zs = [v.z for v in coords_f]
+    ax.scatter(xs, ys, zs,
+               color="gray",
+               alpha=0.1,
+               s=50,
+               depthshade=True,
+               label="Residues")
+
+    # 3) Find closest partner per residue
+    candidates: List[Tuple[float,int,int,set]] = []
+    for i in range(N):
+        for j in range(i+1, N):
+            if abs(i - j) < 2:
+                continue
+            pair = {seq_str[i], seq_str[j]}
+            if pair in ({"G", "C"}, {"A", "U"}):
+                v1, v2 = coords_f[i], coords_f[j]
+                d = math.dist((v1.x, v1.y, v1.z), (v2.x, v2.y, v2.z))
+                if d <= pair_threshold:
+                    candidates.append((d, i, j, pair))
+    candidates.sort(key=lambda x: x[0])
+
+    used = set()
+    mid_data: List[Tuple[int, int, Tuple[float,float,float], str]] = []
+    for dist, i, j, pair in candidates:
+        if i in used or j in used:
+            continue
+        used.add(i); used.add(j)
+        v1, v2 = coords_f[i], coords_f[j]
+        mid = ((v1.x + v2.x)/2, (v1.y + v2.y)/2, (v1.z + v2.z)/2)
+        color = "blue" if pair == {"G", "C"} else "red"
+        mid_data.append((i, j, mid, color))
+
+    if not mid_data:
+        raise RuntimeError("No GC/AU pairs found within threshold")
+
+    # 4) Sort by the smaller index of each pair
+    mid_data.sort(key=lambda t: min(t[0], t[1]))
+
+    # 5) Draw thick, color-coded lines between adjacent pairs
+    for k in range(len(mid_data) - 1):
+        i_k, j_k, m_k, color_k = mid_data[k]
+        i_n, j_n, m_n, _       = mid_data[k + 1]
+        if min(i_k, j_k) + 1 == min(i_n, j_n):
+            ax.plot(
+                [m_k[0], m_n[0]],
+                [m_k[1], m_n[1]],
+                [m_k[2], m_n[2]],
+                color=color_k,
+                linewidth=2,
+                linestyle="-",
+                label=None
+            )
+
+    # Labels & legend
+    ax.set_xlabel("X")
+    ax.set_ylabel("Y")
+    ax.set_zlabel("Z")
+    ax.set_title("Residues in Gray with Color‐Coded GC/AU Midpoint Links")
+    plt.subplots_adjust(right=0.75)
+    ax.legend(loc="upper left", bbox_to_anchor=(1.05, 1.0))
     plt.show()
     
 def create_video(
