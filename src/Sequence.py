@@ -88,7 +88,7 @@ class Sequence:
             copy.deepcopy(coords) if coords else self._coords_to_noise(walk=True)
         )
         self.source_coords = copy.deepcopy(self.coords)
-        self.coord_matrix = coords_list_to_matrix(self.coords)
+        self.coord_matrix = coord_list_to_matrix(self.coords)
         self.distance_matrix = coord_to_distance_matrix(self.coord_matrix)
 
     def __repr__(self):
@@ -243,15 +243,14 @@ class SequenceDataset:
 
     subset_sequences: list[Sequence]
 
-    def __init__(self, n_sequences: int, subset_len: int = None):
-        self.n_sequences = n_sequences
+    def __init__(self, n_sequences: int=None, subset_len: int = None):
         self.labels = pd.read_csv(LABELS_PATH)
         self.sequences = pd.read_csv(SEQUENCES_PATH)
         
-        # shuffle the sequences
-
-        self.subset_len = subset_len
-        self.subset_sequences = self.generate_subset_sequences()
+        if n_sequences is not None and subset_len is not None:
+            self.n_sequences = n_sequences
+            self.subset_len = subset_len
+            self.subset_sequences = self.generate_subset_sequences()
 
     def generate_subset_sequences(self):
         subset_len = self.subset_len
@@ -374,7 +373,7 @@ class SequenceDataset:
         )
         seq.coords = coords
         seq.source_coords = coords
-        seq.coord_matrix = coords_list_to_matrix(seq.coords)
+        seq.coord_matrix = coord_list_to_matrix(seq.coords)
         seq.distance_matrix = coord_to_distance_matrix(seq.coord_matrix)
         return seq
 

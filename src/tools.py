@@ -95,7 +95,7 @@ def encode_str(seq_str: str):
     return Tensor(tensor).to(device)
 
 
-def coords_list_to_matrix(coords: list[Vector]) -> Tensor:
+def coord_list_to_matrix(coords: list[Vector]) -> Tensor:
     """
     Create a tensor from a list of coordinates.
     :param coords: List of coordinates
@@ -313,7 +313,7 @@ def adjust_coords(
     4. Calculate unit vectors from coord i to coord j.
     Only contributions from pairs with distances <= MAX_DISTANCE are considered.
     """
-    coord_matrix = coords_list_to_matrix(input_coords)  # Changes every iteration
+    coord_matrix = coord_list_to_matrix(input_coords)  # Changes every iteration
 
     recording = []
     length, _ = coord_matrix.shape
