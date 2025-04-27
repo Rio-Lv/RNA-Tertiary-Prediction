@@ -72,25 +72,40 @@ def rand_phase():
 if __name__ == "__main__":
     os.chdir(os.path.dirname(os.path.abspath(__file__)))
     # Example usage
-    w = 0.1
+    w = 0.2
 
-    particles = [
-        Particle(Vector(0, 0, 0), natural_freq=w, phase=rand_phase()),
-        Particle(Vector(1, 0, 0), natural_freq=w, phase=rand_phase()),
-        Particle(Vector(1, 1, 0), natural_freq=w, phase=rand_phase()),
-        Particle(Vector(1, 1, 1), natural_freq=w, phase=rand_phase()),
-        Particle(Vector(2, 1, 1), natural_freq=w, phase=rand_phase()),
-        Particle(Vector(3, 1, 1), natural_freq=w, phase=rand_phase()),
-    ]
+    # particles = [
+    #     Particle(Vector(0, 0, 0), natural_freq=w, phase=rand_phase()),
+    #     Particle(Vector(1, 0, 0), natural_freq=w, phase=rand_phase()),
+    #     Particle(Vector(1, 1, 0), natural_freq=w, phase=rand_phase()),
+    #     Particle(Vector(1, 1, 1), natural_freq=w, phase=rand_phase()),
+    #     Particle(Vector(2, 1, 1), natural_freq=w, phase=rand_phase()),
+    #     Particle(Vector(3, 1, 1), natural_freq=w, phase=rand_phase()),
+    # ]
+    
+    particles = []
+    
+    for i in range(3):
+        for j in range(3):
+            for k in range(3):
+                x = i + random.uniform(-0.1, 0.1)
+                y = j + random.uniform(-0.1, 0.1)
+                z = k + random.uniform(-0.1, 0.1)
+                particles.append(
+                    Particle(Vector(x,y,z), natural_freq=random.random()*10, phase=rand_phase())
+                )
+                
+    init_particles = particles.copy()
 
-    initial_coords = [p.coord for p in particles.copy()]
-
-    recording = sync_particles(particles, n_iter=500)
     dummy_seq_str = "A" * len(particles)
+    initial_coords = [p.coord for p in init_particles]
+    plot_coords_list(dummy_seq_str, initial_coords)
+
+    recording = sync_particles(particles, n_iter=1000)
     create_video(
         target_coords=initial_coords,
         recording=recording,
         seq_str=dummy_seq_str,
-        speed=5,
+        speed=10,
         save_path="videos/rna_waves.mp4",
     )
