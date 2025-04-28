@@ -629,7 +629,7 @@ def plot_coords_mids(
     zs = [v.z for v in coords_f]
     ax.scatter(xs, ys, zs,
                color="gray",
-               alpha=0.1,
+               alpha=0.2,
                s=50,
                depthshade=True,
                label="Residues")
@@ -770,8 +770,8 @@ def create_video(
         ax.set_ylim(*y_lim)
         ax.set_zlim(*z_lim)
         # faint target
-        ax.scatter(xs, ys, zs, color="black", s=100, alpha=0.05)
-        ax.plot(xs, ys, zs, color="black", alpha=0.05, linewidth=2)
+        ax.scatter(xs, ys, zs, color="black", s=100, alpha=0.2)
+        ax.plot(xs, ys, zs, color="black", alpha=0.2, linewidth=2)
         ax.set_xlabel("X"); ax.set_ylabel("Y"); ax.set_zlabel("Z")
         ax.set_title("Adjustment Process")
         return []
@@ -793,8 +793,8 @@ def create_video(
         ax.set_zlim(*z_lim)
 
         # re‐plot faint target
-        ax.scatter(xs, ys, zs, color="black", s=100, alpha=0.05)
-        ax.plot(xs, ys, zs, color="black", alpha=0.05, linewidth=2)
+        ax.scatter(xs, ys, zs, color="black", s=100, alpha=0.2)
+        ax.plot(xs, ys, zs, color="black", alpha=0.2, linewidth=2)
 
         # plot current by base
         for base, color in base_colors.items():
