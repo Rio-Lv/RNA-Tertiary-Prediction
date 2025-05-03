@@ -9,8 +9,8 @@ import random
 import copy
 
 EPS = 1e-8
-K = 1  # Coupling constant
-MAX_DELTA = 0.01  # Maximum delta for noise
+K = 10  # Coupling constant
+MAX_DELTA = 0.02  # Maximum delta for noise
 
 class Particle:
     def __init__(
@@ -66,6 +66,7 @@ def shift_phases(particles: list[Particle]) -> list[Particle]:
         for j in range(N):
             if i != j:
                 d = dist_matrix[i][j]
+                
                 slope = math.cos(d/particles[i].natural_freq + particles[i].phase)
                 # apply sigmoid to magnitude of slope
                 mag = -slope
@@ -78,6 +79,7 @@ def shift_phases(particles: list[Particle]) -> list[Particle]:
                 deltas[i][0] += dx
                 deltas[i][1] += dy
                 deltas[i][2] += dz
+                
       
     # 1. Get Magnitude of deltas
     # 2. Use min delta and MAX_DELTA
@@ -128,15 +130,16 @@ if __name__ == "__main__":
     # ]
 
     particles = []
-    grid_size = 5
+    grid_size = 4
     for i in range(grid_size):
         for j in range(grid_size):
             for k in range(grid_size):
-                x = i + random.uniform(-0.1, 0.1)
-                y = j + random.uniform(-0.1, 0.1)
-                z = k + random.uniform(-0.1, 0.1)
+                rk = 1
+                x = i + random.uniform(-rk, rk)
+                y = j + random.uniform(-rk, rk)
+                z = k + random.uniform(-rk, rk)
                 particles.append(
-                    Particle(Vector(x,y,z), natural_freq=5, phase=rand_phase())
+                    Particle(Vector(x,y,z), natural_freq=0.2, phase=rand_phase())
                 )
 
     init_particles = particles.copy()
@@ -151,6 +154,7 @@ if __name__ == "__main__":
         seq_str=dummy_seq_str,
         speed=10,
         save_path="videos/rna_waves.mp4",
+        align_tail=False,
     )
     coords = [p.coord for p in init_particles]
     plot_coords_list(dummy_seq_str, coords, initial_coords)

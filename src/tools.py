@@ -696,6 +696,7 @@ def create_video(
     speed: int,
     save_path: str,
     interval: int = 33,
+    align_tail: bool = True,
 ):
     """
     Animate the adjustment process from `recording` towards `target_coords`.
@@ -779,8 +780,10 @@ def create_video(
     def update(frame_idx: int):
         if frame_idx % 10 == 0:
             print(f"Processing frame {frame_idx+1}/{num_frames}")
-
-        current = align(recording_coords[frame_idx], tgt_f)
+        if align_tail:
+            current = align(recording_coords[frame_idx], tgt_f)
+        else:
+            current = recording_coords[frame_idx]
 
         # group by base
         groups = {b: [] for b in base_colors}
